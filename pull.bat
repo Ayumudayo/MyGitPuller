@@ -1,2 +1,4 @@
-py pull.py -w 4
+@echo off
+echo Running GitPuller...
+GitPuller.exe -w 6 --init-missing-submodules
 pause

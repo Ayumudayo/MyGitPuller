@@ -1,0 +1,53 @@
+# Visual Studio
+.vs/
+bin/
+obj/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+# Visual Studio
+.vs/
+bin/
+obj/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# General
+.DS_Store
+Thumbs.db
+
+# Build results
+Publish/
+.git_repo_cache.json
+git_update_report.md
+
+# Etc
+.git_repo_cache.json
+git_update_report.md
