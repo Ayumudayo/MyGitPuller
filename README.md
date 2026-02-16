@@ -62,6 +62,11 @@ pull.bat
   GitPuller.exe -t 120
   ```
 
+- `-h` / `--help`: 사용 가능한 옵션과 설명을 출력하고 종료합니다.
+  ```bash
+  GitPuller.exe --help
+  ```
+
 - `--no-pull`: `git pull --ff-only`를 생략하고 `fetch` 및 보고서 생성만 수행합니다.
 
 - `--force-sync`: (주의: 파괴적) 각 저장소의 기본 브랜치(`origin/HEAD`)를 체크아웃하여 리모트 상태로 강제 동기화합니다.

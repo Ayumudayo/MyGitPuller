@@ -1,13 +1,7 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace GitPuller
 {
@@ -15,14 +9,18 @@ namespace GitPuller
     {
         static readonly object ConsoleLock = new object();
         static int MaxDegreeOfParallelism = 6;
+        const int DefaultMaxDegreeOfParallelism = 6;
         static bool InitMissingSubmodules = true;
         static bool ForceSync = false;
         static bool CleanUntracked = false;
         static bool ForceRescan = false;
         static bool PullFfOnly = true;
+        static bool ShowHelp = false;
         static string RootDir = AppContext.BaseDirectory;
         const string CacheFileName = ".git_repo_cache.json";
         static int GitTimeout = 60000; // Default 60s
+        const int DefaultGitTimeoutSeconds = 60;
+        const int MinGitTimeoutSeconds = 1;
 
         // Some environments (CI/redirected output) don't support cursor operations.
         static bool SupportsCursorControl = true;
@@ -39,7 +37,7 @@ namespace GitPuller
         const string TreeBranch = "├─";
         const string TreeLast = "└─";
 
-        static void Main(string[] args)
+        static int Main(string[] args)
         {
             // Force UTF-8
             Console.OutputEncoding = Encoding.UTF8;
@@ -54,88 +52,115 @@ namespace GitPuller
                 SupportsCursorControl = false;
             }
 
-            ParseArgs(args);
-
-            RootDir = Path.GetFullPath(RootDir);
-            
-            List<string> repos;
-            if (!ForceRescan && TryLoadCache(out repos))
-            {
-                Console.WriteLine($"Loaded {repos.Count} repositories from cache.");
-            }
-            else
-            {
-                Console.WriteLine($"Scanning {RootDir} for git repositories...");
-                repos = FindGitRepos(RootDir);
-                SaveCache(repos);
-            }
-
-            TotalRepos = repos.Count;
-
-            if (TotalRepos == 0)
-            {
-                Console.WriteLine("No repositories found.");
-                return;
-            }
-
-            Console.WriteLine($"Found {TotalRepos} repositories. Processing with {MaxDegreeOfParallelism} workers...");
-            Console.WriteLine(); // Spacer
-
-            var results = new List<RepoResult>();
-            var options = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
-            var sw = Stopwatch.StartNew();
-
-            // Initial Progress Bar
-            DrawProgress();
-
-            Parallel.ForEach(repos, options, (repo) =>
-            {
-                var res = ProcessRepo(repo);
-                
-                lock (ConsoleLock)
-                {
-                    ProcessedCount++;
-                    if (res.Failed) FailCount++;
-                    else SuccessCount++;
-                    
-                    GlobalNewCommitsCount += res.NewCommitsCount;
-
-                    results.Add(res);
-                    
-                    // Only print to main stream if there's something interesting (Error or New Commits)
-                    if (res.Failed || res.NewCommitsCount > 0)
-                    {
-                        ClearCurrentLine();
-                        PrintResult(res);
-                    }
-                    
-                    DrawProgress();
-                }
-            });
-
-            sw.Stop();
-            ClearCurrentLine(); // Clear final progress bar
-
             try
             {
-                Console.CursorVisible = true;
-            }
-            catch
-            {
-                // ignore
-            }
+                ParseArgs(args);
+                if (ShowHelp)
+                {
+                    PrintUsage();
+                    return 0;
+                }
 
-            WriteSummary(results, sw.Elapsed);
+                if (!ValidateAndNormalizeSettings())
+                    return 1;
+
+                List<string> repos;
+                if (!ForceRescan && TryLoadCache(out repos))
+                {
+                    Console.WriteLine($"Loaded {repos.Count} repositories from cache.");
+                }
+                else
+                {
+                    Console.WriteLine($"Scanning {RootDir} for git repositories...");
+                    repos = FindGitRepos(RootDir);
+                    SaveCache(repos);
+                }
+
+                TotalRepos = repos.Count;
+
+                if (TotalRepos == 0)
+                {
+                    Console.WriteLine("No repositories found.");
+                    return 0;
+                }
+
+                Console.WriteLine($"Found {TotalRepos} repositories. Processing with {MaxDegreeOfParallelism} workers...");
+                Console.WriteLine(); // Spacer
+
+                var results = new List<RepoResult>();
+                var options = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
+                var sw = Stopwatch.StartNew();
+
+                // Initial Progress Bar
+                DrawProgress();
+
+                Parallel.ForEach(repos, options, (repo) =>
+                {
+                    var res = ProcessRepo(repo);
+                    
+                    lock (ConsoleLock)
+                    {
+                        ProcessedCount++;
+                        if (res.Failed) FailCount++;
+                        else SuccessCount++;
+                        
+                        GlobalNewCommitsCount += res.NewCommitsCount;
+
+                        results.Add(res);
+                        
+                        // Only print to main stream if there's something interesting (Error or New Commits)
+                        if (res.Failed || res.NewCommitsCount > 0)
+                        {
+                            ClearCurrentLine();
+                            PrintResult(res);
+                        }
+                        
+                        DrawProgress();
+                    }
+                });
+
+                sw.Stop();
+                ClearCurrentLine(); // Clear final progress bar
+                WriteSummary(results, sw.Elapsed);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                ClearCurrentLine();
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Fatal error: {ex.GetType().Name}: {ex.Message}");
+                Console.ResetColor();
+                return 1;
+            }
+            finally
+            {
+                try
+                {
+                    Console.CursorVisible = true;
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
         }
 
         static void ParseArgs(string[] args)
         {
             for (int i = 0; i < args.Length; i++)
             {
-                if (args[i] == "-w" && i + 1 < args.Length)
+                if (args[i] == "-w")
                 {
-                    if (int.TryParse(args[i + 1], out int w)) MaxDegreeOfParallelism = w;
-                    i++;
+                    if (!TryReadOptionValue(args, ref i, "-w", out var workerCountRaw))
+                        continue;
+
+                    if (!int.TryParse(workerCountRaw, out int w) || w < 1)
+                    {
+                        Console.WriteLine($"Warning: Invalid worker count '{workerCountRaw}'. Keeping {MaxDegreeOfParallelism}.");
+                        continue;
+                    }
+
+                    MaxDegreeOfParallelism = w;
                 }
                 else if (args[i] == "--init-missing-submodules")
                 {
@@ -163,17 +188,134 @@ namespace GitPuller
                 {
                     PullFfOnly = false;
                 }
-                else if (args[i] == "--root" && i + 1 < args.Length)
+                else if (args[i] == "--root")
                 {
-                    RootDir = args[i + 1];
-                    i++;
+                    if (!TryReadOptionValue(args, ref i, "--root", out var rootRaw))
+                        continue;
+
+                    RootDir = rootRaw;
                 }
-                else if ((args[i] == "-t" || args[i] == "--timeout") && i + 1 < args.Length)
+                else if (args[i] == "-t" || args[i] == "--timeout")
                 {
-                    if (int.TryParse(args[i + 1], out int t)) GitTimeout = t * 1000;
-                    i++;
+                    if (!TryReadOptionValue(args, ref i, args[i], out var timeoutRaw))
+                        continue;
+
+                    if (!int.TryParse(timeoutRaw, out int seconds) || seconds < MinGitTimeoutSeconds)
+                    {
+                        Console.WriteLine($"Warning: Invalid timeout '{timeoutRaw}'. Keeping {GitTimeout / 1000}s.");
+                        continue;
+                    }
+
+                    if (seconds > int.MaxValue / 1000)
+                    {
+                        Console.WriteLine($"Warning: Timeout '{timeoutRaw}' is too large. Keeping {GitTimeout / 1000}s.");
+                        continue;
+                    }
+
+                    GitTimeout = seconds * 1000;
+                }
+                else if (args[i] == "-h" || args[i] == "--help")
+                {
+                    ShowHelp = true;
+                }
+                else
+                {
+                    Console.WriteLine($"Warning: Unknown option '{args[i]}' ignored. Use --help to see valid options.");
                 }
             }
+        }
+
+        static void PrintUsage()
+        {
+            Console.WriteLine("MyGitPuller - Update multiple git repositories in parallel");
+            Console.WriteLine();
+            Console.WriteLine("Usage:");
+            Console.WriteLine("  GitPuller.exe [options]");
+            Console.WriteLine();
+            Console.WriteLine("Options:");
+            Console.WriteLine($"  -w <number>                 Number of parallel workers (default: {DefaultMaxDegreeOfParallelism})");
+            Console.WriteLine("  --rescan                    Ignore cache and rescan directories");
+            Console.WriteLine("  --init-missing-submodules   Initialize missing submodules when updating");
+            Console.WriteLine("  --no-init-submodules        Do not initialize new submodules");
+            Console.WriteLine("  --no-pull                   Skip git pull (fetch/report only)");
+            Console.WriteLine("  --force-sync                Force sync to origin/HEAD (destructive)");
+            Console.WriteLine("  --clean                     With --force-sync, remove untracked files (destructive)");
+            Console.WriteLine("  --root <path>               Root directory to scan");
+            Console.WriteLine($"  -t, --timeout <seconds>     Per-git-command timeout in seconds (default: {DefaultGitTimeoutSeconds})");
+            Console.WriteLine("  -h, --help                  Show this help and exit");
+        }
+
+        static bool ValidateAndNormalizeSettings()
+        {
+            if (MaxDegreeOfParallelism < 1)
+            {
+                Console.WriteLine($"Warning: Worker count must be >= 1. Falling back to {DefaultMaxDegreeOfParallelism}.");
+                MaxDegreeOfParallelism = DefaultMaxDegreeOfParallelism;
+            }
+
+            int minTimeoutMs = MinGitTimeoutSeconds * 1000;
+            if (GitTimeout < minTimeoutMs)
+            {
+                Console.WriteLine($"Warning: Timeout must be >= {MinGitTimeoutSeconds}s. Falling back to {DefaultGitTimeoutSeconds}s.");
+                GitTimeout = DefaultGitTimeoutSeconds * 1000;
+            }
+
+            try
+            {
+                RootDir = Path.GetFullPath(RootDir);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: Invalid root path '{RootDir}'. {ex.Message}");
+                return false;
+            }
+
+            if (!Directory.Exists(RootDir))
+            {
+                Console.WriteLine($"Error: Root directory does not exist: {RootDir}");
+                return false;
+            }
+
+            return true;
+        }
+
+        static bool TryReadOptionValue(string[] args, ref int index, string option, out string value)
+        {
+            value = string.Empty;
+
+            int valueIndex = index + 1;
+            if (valueIndex >= args.Length)
+            {
+                Console.WriteLine($"Warning: Missing value for {option}. Option ignored.");
+                return false;
+            }
+
+            var candidate = args[valueIndex];
+            if (candidate.StartsWith("-", StringComparison.Ordinal) && IsRecognizedOption(candidate))
+            {
+                Console.WriteLine($"Warning: Missing value for {option}. Option ignored.");
+                return false;
+            }
+
+            value = candidate;
+            index = valueIndex;
+            return true;
+        }
+
+        static bool IsRecognizedOption(string arg)
+        {
+            return arg == "-w"
+                || arg == "--init-missing-submodules"
+                || arg == "--no-init-submodules"
+                || arg == "--rescan"
+                || arg == "--force-sync"
+                || arg == "--clean"
+                || arg == "--no-pull"
+                || arg == "--root"
+                || arg == "-t"
+                || arg == "--timeout"
+                || arg == "-h"
+                || arg == "--help";
         }
 
         static bool TryLoadCache(out List<string> repos)
