@@ -48,6 +48,11 @@ public interface IRepositoryManagementConfigStore
     Task SaveAsync(LibraryConfig config, CancellationToken cancellationToken);
 }
 
+public interface IRemovedRepositoryDirectoryDeleter
+{
+    void Delete(string removedPath);
+}
+
 public sealed class CoreRepositoryManagementService : IRepositoryManagementService
 {
     private const string RestoreValidationRemoteUrl = "https://example.invalid/restore.git";
@@ -56,17 +61,20 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
     private readonly GitRepositoryScanner scanner;
     private readonly RepositoryCloneService cloneService;
     private readonly RepositoryRemovalService removalService;
+    private readonly IRemovedRepositoryDirectoryDeleter removedRepositoryDirectoryDeleter;
 
     public CoreRepositoryManagementService(
         LibraryConfigStore? configStore = null,
         GitRepositoryScanner? scanner = null,
         RepositoryCloneService? cloneService = null,
-        RepositoryRemovalService? removalService = null)
+        RepositoryRemovalService? removalService = null,
+        IRemovedRepositoryDirectoryDeleter? removedRepositoryDirectoryDeleter = null)
         : this(
             new LibraryConfigStoreAdapter(configStore ?? new LibraryConfigStore()),
             scanner,
             cloneService,
-            removalService)
+            removalService,
+            removedRepositoryDirectoryDeleter)
     {
     }
 
@@ -74,12 +82,14 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         IRepositoryManagementConfigStore configStore,
         GitRepositoryScanner? scanner = null,
         RepositoryCloneService? cloneService = null,
-        RepositoryRemovalService? removalService = null)
+        RepositoryRemovalService? removalService = null,
+        IRemovedRepositoryDirectoryDeleter? removedRepositoryDirectoryDeleter = null)
     {
         this.configStore = configStore;
         this.scanner = scanner ?? new GitRepositoryScanner();
         this.cloneService = cloneService ?? new RepositoryCloneService();
         this.removalService = removalService ?? new RepositoryRemovalService();
+        this.removedRepositoryDirectoryDeleter = removedRepositoryDirectoryDeleter ?? RemovedRepositoryDirectoryDeleter.Instance;
     }
 
     public RepositoryAddPreview PreviewAddRepository(RepositoryAddRequest request)
@@ -219,7 +229,18 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
         if (Directory.Exists(removedPath))
         {
-            Directory.Delete(removedPath, recursive: true);
+            try
+            {
+                removedRepositoryDirectoryDeleter.Delete(removedPath);
+            }
+            catch
+            {
+                await RestoreRemovedRepositoryMetadataAsync(
+                    config.LibraryRoot,
+                    removedRepository,
+                    cancellationToken).ConfigureAwait(false);
+                throw;
+            }
         }
 
         var savedConfig = await configStore.LoadAsync(config.LibraryRoot, cancellationToken).ConfigureAwait(false);
@@ -235,6 +256,18 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
             inventory,
             config.RemovedRepositories.ToArray(),
             config.Categories.ToArray());
+    }
+
+    private async Task RestoreRemovedRepositoryMetadataAsync(
+        string libraryRoot,
+        RemovedRepositoryRecord removedRepository,
+        CancellationToken cancellationToken)
+    {
+        var config = await configStore.LoadAsync(libraryRoot, cancellationToken).ConfigureAwait(false);
+        EnsureMutableCollections(config);
+        config.RemovedRepositories.RemoveAll(existing => PathsEqual(existing.RemovedPath, removedRepository.RemovedPath));
+        config.RemovedRepositories.Add(CloneRemovedRepositoryRecord(removedRepository));
+        await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
     }
 
     private static void AddRepositoryMetadata(LibraryConfig config, RepositoryDescriptor repository)
@@ -254,6 +287,19 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         {
             config.Categories.Add(repository.Category);
         }
+    }
+
+    private static RemovedRepositoryRecord CloneRemovedRepositoryRecord(RemovedRepositoryRecord removedRepository)
+    {
+        return new RemovedRepositoryRecord
+        {
+            Name = removedRepository.Name,
+            OriginalPath = removedRepository.OriginalPath,
+            RemovedPath = removedRepository.RemovedPath,
+            Category = removedRepository.Category,
+            RemoteUrl = removedRepository.RemoteUrl,
+            RemovedAt = removedRepository.RemovedAt
+        };
     }
 
     private static void EnsureMutableCollections(LibraryConfig config)
@@ -369,6 +415,21 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         public Task SaveAsync(LibraryConfig config, CancellationToken cancellationToken)
         {
             return inner.SaveAsync(config, cancellationToken);
+        }
+    }
+
+    private sealed class RemovedRepositoryDirectoryDeleter : IRemovedRepositoryDirectoryDeleter
+    {
+        public static RemovedRepositoryDirectoryDeleter Instance { get; } = new();
+
+        private RemovedRepositoryDirectoryDeleter()
+        {
+        }
+
+        public void Delete(string removedPath)
+        {
+            ClearReadOnlyAttributes(removedPath);
+            Directory.Delete(removedPath, recursive: true);
         }
     }
 }

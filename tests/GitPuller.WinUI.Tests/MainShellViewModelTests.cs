@@ -494,6 +494,32 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task CoreRepositoryManagementService_PermanentDeleteRestoresMetadata_WhenPhysicalDeleteFailsAfterSave()
+    {
+        var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        var removed = RemovedRecord("DeletePhysicalFailure", libraryRoot);
+        CreateRepositoryDirectory(removed.RemovedPath);
+        var store = new FailingRepositoryManagementConfigStore(new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins"],
+            RemovedRepositories = [removed]
+        });
+        var deleter = new ThrowingRemovedRepositoryDirectoryDeleter();
+        var service = new CoreRepositoryManagementService(
+            store,
+            removedRepositoryDirectoryDeleter: deleter);
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            service.PermanentlyDeleteRepositoryAsync(libraryRoot, removed, CancellationToken.None));
+
+        Assert.True(Directory.Exists(removed.RemovedPath));
+        var persistedRemoved = Assert.Single(store.PersistedConfig.RemovedRepositories);
+        Assert.Equal(removed.RemovedPath, persistedRemoved.RemovedPath);
+        Assert.Equal(1, deleter.DeleteCallCount);
+    }
+
+    [Fact]
     public async Task LauncherActions_InvokeInjectedLauncherForRepositoryAndRemovedTargets()
     {
         var launcher = new FakeFileSystemLauncher();
@@ -1097,6 +1123,19 @@ public sealed class MainShellViewModelTests
                 }).ToList(),
                 DefaultOptions = config.DefaultOptions
             };
+        }
+    }
+
+    private sealed class ThrowingRemovedRepositoryDirectoryDeleter : IRemovedRepositoryDirectoryDeleter
+    {
+        private int deleteCallCount;
+
+        public int DeleteCallCount => deleteCallCount;
+
+        public void Delete(string removedPath)
+        {
+            Interlocked.Increment(ref deleteCallCount);
+            throw new IOException("Injected physical delete failure.");
         }
     }
 
