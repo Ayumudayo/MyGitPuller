@@ -607,6 +607,29 @@ public sealed class MainShellViewModelTests
         Assert.Contains(removedRecord.RemoteUrl, launcher.LaunchedUris);
     }
 
+    [Fact]
+    public async Task OpenLatestReport_UsesActiveLibraryRootReport()
+    {
+        var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(libraryRoot);
+        var reportPath = Path.Combine(libraryRoot, GitPullerReportWriter.LatestReportFileName);
+        await File.WriteAllTextAsync(reportPath, "report");
+        var launcher = new FakeFileSystemLauncher();
+        var viewModel = new MainShellViewModel(
+            libraryRoot,
+            [],
+            [],
+            [],
+            launcher: launcher);
+
+        Assert.Equal(reportPath, viewModel.LatestReportPath);
+        Assert.True(viewModel.CanOpenLatestReport);
+
+        await viewModel.OpenLatestReportAsync();
+
+        Assert.Contains(reportPath, launcher.LaunchedPaths);
+    }
+
     [Theory]
     [InlineData("git@github.com:owner/repo.git", "https://github.com/owner/repo")]
     [InlineData("git@github-bf:bloooowfish/MyGitPuller.git", "https://github.com/bloooowfish/MyGitPuller")]

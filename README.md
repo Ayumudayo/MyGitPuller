@@ -1,6 +1,6 @@
 # MyGitPuller
 
-여러 Git 리포지토리를 병렬로 빠르게 업데이트하는 C# 콘솔 애플리케이션입니다. 상위 디렉터리를 스캔하여 모든 리포지토리를 찾고, 최신 변경 사항을 가져오며(Pull), 서브모듈을 업데이트합니다.
+여러 Git 리포지토리를 병렬로 빠르게 업데이트하는 C# 애플리케이션입니다. CLI는 계속 지원되며, WinUI 3 GUI 프로젝트도 함께 제공합니다. 상위 디렉터리를 스캔하여 모든 리포지토리를 찾고, 원격 상태를 로컬 백업용으로 강제 동기화합니다.
 
 ## 시작하기
 
@@ -10,6 +10,7 @@
 - 또는 [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (직접 빌드 시)
 - Git이 설치되어 있고 시스템 PATH에 등록되어 있어야 합니다.
 - Git LFS 오브젝트까지 백업하려면 Git LFS가 설치되어 있고 시스템 PATH에 등록되어 있어야 합니다. 설치되어 있지 않으면 LFS 단계는 자동으로 생략됩니다.
+- GUI를 빌드하거나 실행하려면 Windows 10 1809 이상, .NET 8 SDK, Windows App SDK/WinUI 3 개발 환경이 필요합니다.
 
 ### 설치 및 실행
 
@@ -19,6 +20,43 @@
 ```bash
 pull.bat
 ```
+
+### WinUI GUI
+
+GUI는 `GitPuller.WinUI` 프로젝트에 있습니다. CLI와 같은 Core 실행 로직을 사용하므로 동기화 의미는 동일하지만, 저장소 목록 관리와 결과 확인을 GUI에서 수행할 수 있습니다.
+
+```powershell
+dotnet run --project GitPuller.WinUI\GitPuller.WinUI.csproj --configuration Debug
+```
+
+GUI의 기본 화면은 다크 테마이며 다음 흐름을 제공합니다.
+
+- 라이브러리 루트와 카테고리별 저장소 목록 확인
+- 전체 동기화 실행, 진행률 확인, 실패/경고/업데이트/정상 순 정렬
+- 정상 저장소는 기본적으로 숨김 처리
+- 결과 선택 시 진단 제목, 설명, 권장 조치, 재시도 정책, 관련 로그 확인
+- URL에서 저장소 추가, 제거된 저장소 복구/다른 위치로 복구/영구 삭제
+- 작업자 수, Git timeout, 전체 브랜치 동기화 여부, stale lock 정리 정책 등 고급 옵션 저장
+- 동기화 완료 후 라이브러리 루트의 `git_update_report.md` 열기
+
+GUI 설정은 선택한 라이브러리 루트 아래 `.mygitpuller/config.json`에 저장됩니다. `.mygitpuller/removed`는 제거된 저장소를 임시 보관하는 영역이며, 복구 또는 영구 삭제 전까지 GUI의 제거 목록에서 관리됩니다.
+
+#### 라이브러리 루트와 카테고리
+
+GUI는 하나의 라이브러리 루트 아래에 카테고리 폴더를 두고 저장소를 관리합니다.
+
+```
+E:\FF14\Repos\Remotes\
+├── Dalamud plugins\
+│   └── SomePlugin\
+├── Tools\
+│   └── SomeTool\
+└── .mygitpuller\
+    ├── config.json
+    └── removed\
+```
+
+URL 추가 시 사용자가 카테고리를 직접 선택합니다. 예를 들어 `https://github.com/goatcorp/Dalamud.git`을 `Tools` 카테고리에 추가하면 기본 대상은 `<라이브러리 루트>\Tools\Dalamud`입니다. 폴더 이름은 GUI에서 수정할 수 있으며, Core 검증을 통해 경로 이탈, `.mygitpuller` 내부 저장, Windows 예약 이름, trailing dot/space 같은 위험한 이름은 Git 실행 전에 거부됩니다.
 
 ## 사용 방법
 

@@ -433,7 +433,7 @@ public sealed class MainShellViewModel : ObservableObject
     public string LaunchErrorMessage => launchErrorMessage;
     public bool HasLaunchStatus => !string.IsNullOrWhiteSpace(LaunchStatusMessage);
     public bool HasLaunchError => !string.IsNullOrWhiteSpace(LaunchErrorMessage);
-    public string LatestReportPath => Path.Combine(AppContext.BaseDirectory, "git_update_report.md");
+    public string LatestReportPath => Path.Combine(LibraryRoot, GitPullerReportWriter.LatestReportFileName);
     public bool CanOpenSelectedRepositoryFolder =>
         launcher is not null
         && !string.IsNullOrWhiteSpace(SelectedResult?.Path);

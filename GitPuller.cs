@@ -13,7 +13,6 @@ namespace GitPuller
         private const int DefaultGitTimeoutSeconds = 60;
         private const int MinGitTimeoutSeconds = 1;
         private const string CacheFileName = ".git_repo_cache.json";
-        private const string LatestReportFileName = "git_update_report.md";
         private static readonly string RunId = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
 
         private static int maxDegreeOfParallelism = DefaultMaxDegreeOfParallelism;
@@ -904,107 +903,9 @@ namespace GitPuller
 
             Console.WriteLine("\n========================================================");
 
-            var orderedResults = results
-                .OrderBy(r => r.StartedAt == default ? DateTimeOffset.MaxValue : r.StartedAt)
-                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var workerGroups = orderedResults
-                .GroupBy(r => r.WorkerSlot)
-                .OrderBy(g => g.Key)
-                .ToList();
-
-            var reportBuilder = new StringBuilder();
-            reportBuilder.AppendLine("# Git Update Report");
-            reportBuilder.AppendLine($"Generated: {DateTime.Now}");
-            reportBuilder.AppendLine();
-            reportBuilder.AppendLine("## Run Summary");
-            reportBuilder.AppendLine($"- Total Repositories: {runResult.TotalRepositories}");
-            reportBuilder.AppendLine($"- Requested Workers: {options.MaxDegreeOfParallelism}");
-            reportBuilder.AppendLine($"- Successful Repositories: {runResult.SuccessCount}");
-            reportBuilder.AppendLine($"- Failed Repositories: {runResult.FailCount}");
-            reportBuilder.AppendLine($"- Total New Commits: {runResult.TotalNewCommitsCount}");
-            reportBuilder.AppendLine($"- Wall-clock Elapsed: {runResult.Elapsed.TotalSeconds:F2}s");
-            reportBuilder.AppendLine();
-
-            if (options.VerboseReport)
-            {
-                reportBuilder.AppendLine("## Worker Execution Details");
-                foreach (var workerGroup in workerGroups)
-                {
-                    var workerTotal = TimeSpan.FromTicks(workerGroup.Sum(r => r.Elapsed.Ticks));
-                    reportBuilder.AppendLine($"### Worker {workerGroup.Key}");
-                    reportBuilder.AppendLine($"- Repositories Handled: {workerGroup.Count()}");
-                    reportBuilder.AppendLine($"- Cumulative Repository Time: {workerTotal.TotalSeconds:F2}s");
-                    reportBuilder.AppendLine();
-
-                    foreach (var result in workerGroup)
-                    {
-                        reportBuilder.AppendLine($"#### {result.Name}");
-                        reportBuilder.AppendLine($"- Repository Path: `{result.Path}`");
-                        reportBuilder.AppendLine($"- Started At: {result.StartedAt:yyyy-MM-dd HH:mm:ss zzz}");
-                        reportBuilder.AppendLine($"- Completed At: {result.CompletedAt:yyyy-MM-dd HH:mm:ss zzz}");
-                        reportBuilder.AppendLine($"- Total Elapsed: {result.Elapsed.TotalSeconds:F2}s");
-
-                        if (result.Operations.Count > 0)
-                        {
-                            reportBuilder.AppendLine("- Operations:");
-                            foreach (var operation in result.Operations)
-                            {
-                                var status = operation.TimedOut ? "timeout" : operation.ExitCode == 0 ? "ok" : $"rc={operation.ExitCode}";
-                                reportBuilder.AppendLine($"  - {operation.StartedAt:HH:mm:ss} | `{operation.Command}` | {operation.Elapsed.TotalSeconds:F2}s | {status}");
-                            }
-                        }
-                        else
-                        {
-                            reportBuilder.AppendLine("- Operations: none recorded");
-                        }
-
-                        reportBuilder.AppendLine();
-                    }
-                }
-            }
-
-            reportBuilder.AppendLine("## Repository Result Notes");
-            foreach (var result in orderedResults)
-            {
-                var icon = result.Failed ? "❌" : "✅";
-                reportBuilder.AppendLine($"## {icon} {result.Name}");
-                if (result.Failed)
-                {
-                    reportBuilder.AppendLine("**FAILED**");
-                }
-
-                if (result.NewCommitsCount > 0)
-                {
-                    reportBuilder.AppendLine($"- New Commits: {result.NewCommitsCount}");
-                }
-
-                if (result.Logs.Count > 0)
-                {
-                    reportBuilder.AppendLine("```");
-                    foreach (var log in result.Logs)
-                    {
-                        reportBuilder.AppendLine(log.Text);
-                    }
-                    reportBuilder.AppendLine("```");
-                }
-
-                reportBuilder.AppendLine();
-            }
-
-            var reportText = reportBuilder.ToString();
-            var reportPath = GetRunReportPath();
-            var latestReportPath = Path.Combine(rootDir, LatestReportFileName);
-            File.WriteAllText(reportPath, reportText, Encoding.UTF8);
-            File.WriteAllText(latestReportPath, reportText, Encoding.UTF8);
-            Console.WriteLine($"Report written to {Path.GetFullPath(reportPath)}");
-            Console.WriteLine($"Latest report written to {Path.GetFullPath(latestReportPath)}");
-        }
-
-        private static string GetRunReportPath()
-        {
-            return Path.Combine(rootDir, $"git_update_report-{RunId}.md");
+            var report = GitPullerReportWriter.WriteReports(rootDir, runResult, options, RunId);
+            Console.WriteLine($"Report written to {Path.GetFullPath(report.RunReportPath)}");
+            Console.WriteLine($"Latest report written to {Path.GetFullPath(report.LatestReportPath)}");
         }
     }
 

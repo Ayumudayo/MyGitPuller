@@ -101,12 +101,14 @@ public sealed class CoreGitPullerSyncService : IGitPullerSyncService
             config.Categories);
     }
 
-    public Task<GitPullerRunResult> RunAllAsync(
+    public async Task<GitPullerRunResult> RunAllAsync(
         GitPullerRunRequest request,
         IProgress<GitPullerProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
-        return runner.RunAllAsync(request, progress, cancellationToken);
+        var runResult = await runner.RunAllAsync(request, progress, cancellationToken).ConfigureAwait(false);
+        GitPullerReportWriter.WriteReports(request.Inventory.LibraryRoot, runResult, request.Options);
+        return runResult;
     }
 
     public Task<RepoResult> RetryRepositoryAsync(
