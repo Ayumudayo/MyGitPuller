@@ -19,8 +19,6 @@
                     <VisualState.Setters>
                         <Setter Target="CategoryNavigation.PaneDisplayMode" Value="Left" />
                         <Setter Target="CategoryNavigation.IsPaneOpen" Value="True" />
-                        <Setter Target="PaneHeaderHost.Visibility" Value="Visible" />
-                        <Setter Target="PaneContentHost.Visibility" Value="Visible" />
                         <Setter Target="ContentHost.Padding" Value="{StaticResource GitPullerPagePadding}" />
                         <Setter Target="ResultsColumn.Width" Value="2*" />
                         <Setter Target="DetailsColumn.Width" Value="*" />
@@ -50,8 +48,6 @@
                     <VisualState.Setters>
                         <Setter Target="CategoryNavigation.PaneDisplayMode" Value="LeftCompact" />
                         <Setter Target="CategoryNavigation.IsPaneOpen" Value="False" />
-                        <Setter Target="PaneHeaderHost.Visibility" Value="Collapsed" />
-                        <Setter Target="PaneContentHost.Visibility" Value="Collapsed" />
                         <Setter Target="ContentHost.Padding" Value="{StaticResource GitPullerPagePadding}" />
                         <Setter Target="ResultsColumn.Width" Value="*" />
                         <Setter Target="DetailsColumn.Width" Value="0" />
@@ -81,8 +77,6 @@
                     <VisualState.Setters>
                         <Setter Target="CategoryNavigation.PaneDisplayMode" Value="LeftMinimal" />
                         <Setter Target="CategoryNavigation.IsPaneOpen" Value="False" />
-                        <Setter Target="PaneHeaderHost.Visibility" Value="Collapsed" />
-                        <Setter Target="PaneContentHost.Visibility" Value="Collapsed" />
                         <Setter Target="ContentHost.Padding" Value="{StaticResource GitPullerCompactPadding}" />
                         <Setter Target="ResultsColumn.Width" Value="*" />
                         <Setter Target="DetailsColumn.Width" Value="0" />

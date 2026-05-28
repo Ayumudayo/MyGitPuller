@@ -10,6 +10,8 @@ namespace GitPuller_WinUI.Views;
 public sealed partial class MainPage : Page
 {
     private bool suppressFolderTreeSelectionChanged;
+    private readonly long isPaneOpenCallbackToken;
+    private readonly long paneDisplayModeCallbackToken;
 
     public MainShellViewModel ViewModel { get; }
 
@@ -19,17 +21,33 @@ public sealed partial class MainPage : Page
             new DispatcherQueueViewModelDispatcher(DispatcherQueue.GetForCurrentThread()));
 
         InitializeComponent();
+        isPaneOpenCallbackToken = CategoryNavigation.RegisterPropertyChangedCallback(
+            NavigationView.IsPaneOpenProperty,
+            (_, _) => UpdatePaneContentVisibility());
+        paneDisplayModeCallbackToken = CategoryNavigation.RegisterPropertyChangedCallback(
+            NavigationView.PaneDisplayModeProperty,
+            (_, _) => UpdatePaneContentVisibility());
 
         Loaded += MainPage_Loaded;
+        Unloaded += MainPage_Unloaded;
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
         RebuildFolderTree();
         UpdateRetryButtonVisibility();
+        UpdatePaneContentVisibility();
     }
 
     private async void MainPage_Loaded(object sender, RoutedEventArgs e)
     {
         Loaded -= MainPage_Loaded;
+        UpdatePaneContentVisibility();
         await ViewModel.InitializeAsync();
+    }
+
+    private void MainPage_Unloaded(object sender, RoutedEventArgs e)
+    {
+        CategoryNavigation.UnregisterPropertyChangedCallback(NavigationView.IsPaneOpenProperty, isPaneOpenCallbackToken);
+        CategoryNavigation.UnregisterPropertyChangedCallback(NavigationView.PaneDisplayModeProperty, paneDisplayModeCallbackToken);
+        Unloaded -= MainPage_Unloaded;
     }
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -65,6 +83,21 @@ public sealed partial class MainPage : Page
 
         PrimaryRetrySelectedDetailButton.Visibility = showPrimary ? Visibility.Visible : Visibility.Collapsed;
         SecondaryRetrySelectedDetailButton.Visibility = showSecondary ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void UpdatePaneContentVisibility()
+    {
+        if (PaneHeaderHost is null || PaneContentHost is null || CategoryNavigation is null)
+        {
+            return;
+        }
+
+        var shouldShowPaneContent = CategoryNavigation.IsPaneOpen
+            || CategoryNavigation.PaneDisplayMode == NavigationViewPaneDisplayMode.Left;
+        var visibility = shouldShowPaneContent ? Visibility.Visible : Visibility.Collapsed;
+
+        PaneHeaderHost.Visibility = visibility;
+        PaneContentHost.Visibility = visibility;
     }
 
     private async void AddRepositoryButton_Click(object sender, RoutedEventArgs e)
