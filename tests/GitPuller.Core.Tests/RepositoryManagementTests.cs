@@ -124,6 +124,109 @@ public sealed class RepositoryManagementTests : IDisposable
     }
 
     [Fact]
+    public void RemoveRepository_RejectsRepositoryPathOutsideLibraryRoot()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var outsideRoot = Path.Combine(tempRoot, "Outside");
+        var outsideRepositoryPath = CreateRepositoryDirectory(outsideRoot, "Plugins", "RepoA");
+        var repository = new RepositoryDescriptor(outsideRepositoryPath, "RepoA", "Plugins", "git@github.com:example/repo-a.git");
+        var config = CreateConfig(libraryRoot, repository);
+        var service = new RepositoryRemovalService();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => service.RemoveRepository(config, repository));
+
+        Assert.Contains("Repository path", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(Path.GetFullPath(libraryRoot), exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(Directory.Exists(outsideRepositoryPath));
+        Assert.Empty(config.RemovedRepositories);
+        Assert.Single(config.Repositories);
+        Assert.Equal(NormalizePath(outsideRepositoryPath), NormalizePath(config.Repositories[0].Path));
+    }
+
+    [Fact]
+    public void RestoreRepositoryAs_RejectsDestinationPathOutsideLibraryRoot()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var repositoryPath = CreateRepositoryDirectory(libraryRoot, "Plugins", "RepoA");
+        var repository = new RepositoryDescriptor(repositoryPath, "RepoA", "Plugins", "git@github.com:example/repo-a.git");
+        var config = CreateConfig(libraryRoot, repository);
+        var service = new RepositoryRemovalService();
+        var removed = service.RemoveRepository(config, repository);
+        var outsideDestination = Path.Combine(tempRoot, "OutsideRestore", "RepoA");
+
+        var exception = Assert.Throws<InvalidOperationException>(() => service.RestoreRepositoryAs(config, removed, "Plugins", outsideDestination));
+
+        Assert.Contains("Restore destination path", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(Path.GetFullPath(libraryRoot), exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(Directory.Exists(removed.RemovedPath));
+        Assert.Empty(config.Repositories);
+        Assert.Equal(removed, Assert.Single(config.RemovedRepositories));
+        Assert.False(Directory.Exists(outsideDestination));
+    }
+
+    [Fact]
+    public void PermanentlyDelete_RejectsRemovedRepositoryPathOutsideRemovedArea()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var outsideRemovedPath = CreateRepositoryDirectory(Path.Combine(tempRoot, "OutsideRemoved"), "Plugins", "RepoA");
+        var removed = new RemovedRepositoryRecord
+        {
+            Name = "RepoA",
+            OriginalPath = Path.Combine(libraryRoot, "Plugins", "RepoA"),
+            RemovedPath = outsideRemovedPath,
+            Category = "Plugins",
+            RemoteUrl = "git@github.com:example/repo-a.git",
+            RemovedAt = DateTimeOffset.UtcNow
+        };
+        var config = new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            RemovedRepositories = [removed]
+        };
+        var service = new RepositoryRemovalService();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => service.PermanentlyDelete(config, removed));
+
+        Assert.Contains("Removed repository path", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(Path.Combine(Path.GetFullPath(libraryRoot), ".mygitpuller", "removed"), exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(Directory.Exists(outsideRemovedPath));
+        Assert.Equal(removed, Assert.Single(config.RemovedRepositories));
+    }
+
+    [Fact]
+    public void PermanentlyDelete_RejectsRemovedRootContainerItself()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var removedRoot = Path.Combine(Path.GetFullPath(libraryRoot), ".mygitpuller", "removed");
+        var firstRemovedRepository = CreateRepositoryDirectory(removedRoot, "Plugins", "RepoA");
+        var secondRemovedRepository = CreateRepositoryDirectory(removedRoot, "Tools", "RepoB");
+        var removed = new RemovedRepositoryRecord
+        {
+            Name = "removed",
+            OriginalPath = Path.Combine(libraryRoot, "Plugins", "RepoA"),
+            RemovedPath = removedRoot,
+            Category = string.Empty,
+            RemoteUrl = null,
+            RemovedAt = DateTimeOffset.UtcNow
+        };
+        var config = new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            RemovedRepositories = [removed]
+        };
+        var service = new RepositoryRemovalService();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => service.PermanentlyDelete(config, removed));
+
+        Assert.Contains("Removed repository path", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(removedRoot, exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(Directory.Exists(removedRoot));
+        Assert.True(Directory.Exists(firstRemovedRepository));
+        Assert.True(Directory.Exists(secondRemovedRepository));
+        Assert.Equal(removed, Assert.Single(config.RemovedRepositories));
+    }
+
+    [Fact]
     public void ScanLibraryRoot_NeverReturnsRepositoriesInsideMyGitPullerRemoved()
     {
         var libraryRoot = Path.Combine(tempRoot, "Library");
@@ -178,5 +281,11 @@ public sealed class RepositoryManagementTests : IDisposable
         Directory.CreateDirectory(Path.Combine(repositoryPath, ".git"));
         File.WriteAllText(Path.Combine(repositoryPath, "README.md"), $"# {name}");
         return repositoryPath;
+    }
+
+    private static string NormalizePath(string path)
+    {
+        return Path.GetFullPath(path)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 }

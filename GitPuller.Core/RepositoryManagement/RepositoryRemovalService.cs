@@ -149,11 +149,6 @@ public sealed class RepositoryRemovalService
             ? normalizedRoot
             : normalizedRoot + Path.DirectorySeparatorChar;
 
-        if (string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
         if (!normalizedPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException($"{description} must stay under '{normalizedRoot}'.");
