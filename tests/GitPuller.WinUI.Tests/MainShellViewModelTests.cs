@@ -736,6 +736,111 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task RunSyncAsync_PreservesSelectedPath_WhenSelectionTemporarilyClearsDuringLiveSortUpdate()
+    {
+        var selectedRepository = Descriptor("Tools", "UpdatedRepo");
+        var laterFailedRepository = Descriptor("Plugins", "FailedRepo");
+        var service = new FakeGitPullerSyncService(LoadResult(selectedRepository, laterFailedRepository));
+        var releaseRun = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.RunAllAsyncHandler = async (_, progress, cancellationToken) =>
+        {
+            var selectedResult = RepoResultFor(selectedRepository, failed: false, newCommits: 2, diagnostic: null);
+            var laterFailedResult = RepoResultFor(
+                laterFailedRepository,
+                failed: true,
+                newCommits: 0,
+                Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error));
+
+            progress?.Report(GitPullerProgressEvent.RunStarted(2));
+            progress?.Report(GitPullerProgressEvent.RepositoryCompleted(selectedRepository, selectedResult, 2, 1));
+
+            await releaseRun.Task.WaitAsync(cancellationToken);
+
+            progress?.Report(GitPullerProgressEvent.RepositoryCompleted(laterFailedRepository, laterFailedResult, 2, 2));
+
+            return new GitPullerRunResult
+            {
+                StartedAt = DateTimeOffset.UtcNow,
+                CompletedAt = DateTimeOffset.UtcNow,
+                RepositoryResults = []
+            };
+        };
+
+        var viewModel = new MainShellViewModel(TestRoot, service);
+        var runTask = viewModel.RunSyncAsync();
+
+        await service.WaitForFirstRepositoryCompletionAsync();
+
+        var initiallySelected = Assert.Single(viewModel.RepositoryResults);
+        Assert.Same(initiallySelected, viewModel.SelectedResult);
+
+        viewModel.SelectedResult = null;
+
+        releaseRun.SetResult();
+        await runTask;
+
+        Assert.Equal(selectedRepository.Path, viewModel.SelectedResult?.Path);
+        Assert.Equal(
+            [RepositoryResultStatus.Failed, RepositoryResultStatus.Updated],
+            viewModel.VisibleResults.Select(result => result.Status).ToArray());
+    }
+
+    [Fact]
+    public async Task RunSyncAsync_SelectsReplacementInstanceForTrackedPath_WhenSelectedResultIsReplaced()
+    {
+        var selectedRepository = Descriptor("Tools", "UpdatedRepo");
+        var laterFailedRepository = Descriptor("Plugins", "FailedRepo");
+        var service = new FakeGitPullerSyncService(LoadResult(selectedRepository, laterFailedRepository));
+        var releaseRun = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.RunAllAsyncHandler = async (_, progress, cancellationToken) =>
+        {
+            var initialSelectedResult = RepoResultFor(selectedRepository, failed: false, newCommits: 1, diagnostic: null);
+            var replacementSelectedResult = RepoResultFor(selectedRepository, failed: false, newCommits: 4, diagnostic: null);
+            var laterFailedResult = RepoResultFor(
+                laterFailedRepository,
+                failed: true,
+                newCommits: 0,
+                Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error));
+
+            progress?.Report(GitPullerProgressEvent.RunStarted(2));
+            progress?.Report(GitPullerProgressEvent.RepositoryCompleted(selectedRepository, initialSelectedResult, 2, 1));
+
+            await releaseRun.Task.WaitAsync(cancellationToken);
+
+            progress?.Report(GitPullerProgressEvent.RepositoryCompleted(laterFailedRepository, laterFailedResult, 2, 2));
+
+            return new GitPullerRunResult
+            {
+                StartedAt = DateTimeOffset.UtcNow,
+                CompletedAt = DateTimeOffset.UtcNow,
+                RepositoryResults =
+                [
+                    replacementSelectedResult,
+                    laterFailedResult
+                ]
+            };
+        };
+
+        var viewModel = new MainShellViewModel(TestRoot, service);
+        var runTask = viewModel.RunSyncAsync();
+
+        await service.WaitForFirstRepositoryCompletionAsync();
+
+        var initiallySelected = Assert.Single(viewModel.RepositoryResults);
+        Assert.Same(initiallySelected, viewModel.SelectedResult);
+
+        viewModel.SelectedResult = null;
+
+        releaseRun.SetResult();
+        await runTask;
+
+        var replacement = Assert.Single(viewModel.RepositoryResults, result => result.Path == selectedRepository.Path);
+        Assert.NotSame(initiallySelected, replacement);
+        Assert.Equal(4, replacement.NewCommitsCount);
+        Assert.Same(replacement, viewModel.SelectedResult);
+    }
+
+    [Fact]
     public async Task RetrySelectedAsync_UsesPreviousRunRequestAndReplacesSelectedRepositoryResult()
     {
         var repository = Descriptor("Plugins", "RetryMe");

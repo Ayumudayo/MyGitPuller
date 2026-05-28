@@ -18,6 +18,7 @@ public sealed class MainShellViewModel : ObservableObject
     private bool isRepositoryManagementBusy;
     private bool hasInitialized;
     private RepositoryResultViewModel? selectedResult;
+    private string selectedResultPath = string.Empty;
     private CategoryNavigationItemViewModel? selectedCategory;
     private CategoryNavigationItemViewModel allRepositoriesNavigationItem;
     private CategoryNavigationItemViewModel? selectedNavigationItem;
@@ -95,6 +96,7 @@ public sealed class MainShellViewModel : ObservableObject
         allRepositoriesNavigationItem = CreateAllRepositoriesNavigationItem();
         selectedNavigationItem = allRepositoriesNavigationItem;
         selectedResult = VisibleResults.FirstOrDefault();
+        selectedResultPath = NormalizePathForComparison(selectedResult?.Path ?? string.Empty);
 
         Categories.CollectionChanged += Categories_CollectionChanged;
         RepositoryResults.CollectionChanged += RepositoryResults_CollectionChanged;
@@ -168,6 +170,11 @@ public sealed class MainShellViewModel : ObservableObject
         {
             if (SetProperty(ref isRunning, value))
             {
+                if (!value && selectedResult is null)
+                {
+                    selectedResultPath = string.Empty;
+                }
+
                 OnPropertyChanged(nameof(CanRunSync));
                 OnPropertyChanged(nameof(RunSyncButtonText));
                 OnPropertyChanged(nameof(RunStatusTitle));
@@ -243,6 +250,7 @@ public sealed class MainShellViewModel : ObservableObject
         {
             if (SetProperty(ref selectedResult, value))
             {
+                UpdateSelectedResultPath(value);
                 RaiseSelectedResultPropertiesChanged();
                 RaiseCommandCanExecuteChanged();
             }
@@ -1523,8 +1531,8 @@ public sealed class MainShellViewModel : ObservableObject
     {
         var viewModel = RepositoryResultViewModel.FromResult(result, repository);
         var existingIndex = IndexOfResult(viewModel.Path);
-        var shouldSelect = SelectedResult is null
-            || PathsEqual(SelectedResult.Path, viewModel.Path);
+        var shouldSelect = IsTrackedSelectedResultPath(viewModel.Path)
+            || (SelectedResult is null && string.IsNullOrWhiteSpace(selectedResultPath));
 
         if (existingIndex >= 0)
         {
@@ -1585,6 +1593,26 @@ public sealed class MainShellViewModel : ObservableObject
             return path.Trim()
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
+    }
+
+    private void UpdateSelectedResultPath(RepositoryResultViewModel? value)
+    {
+        if (value is not null)
+        {
+            selectedResultPath = NormalizePathForComparison(value.Path);
+            return;
+        }
+
+        if (!IsRunning)
+        {
+            selectedResultPath = string.Empty;
+        }
+    }
+
+    private bool IsTrackedSelectedResultPath(string path)
+    {
+        return !string.IsNullOrWhiteSpace(selectedResultPath)
+            && PathsEqual(selectedResultPath, path);
     }
 
     private void SetRunProgress(int completedRepositories, int totalRepositories, string message)
@@ -1671,12 +1699,14 @@ public sealed class MainShellViewModel : ObservableObject
 
     private void EnsureSelectedResultIsVisible()
     {
-        if (SelectedResult is not null && VisibleResults.Contains(SelectedResult))
+        var visibleResults = VisibleResults;
+        if (SelectedResult is not null && visibleResults.Contains(SelectedResult))
         {
             return;
         }
 
-        SelectedResult = VisibleResults.FirstOrDefault();
+        var matchingResult = visibleResults.FirstOrDefault(result => IsTrackedSelectedResultPath(result.Path));
+        SelectedResult = matchingResult ?? visibleResults.FirstOrDefault();
     }
 
     private void Categories_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
