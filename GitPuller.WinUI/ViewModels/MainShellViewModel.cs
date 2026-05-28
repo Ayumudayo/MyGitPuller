@@ -25,6 +25,7 @@ public sealed class MainShellViewModel : ObservableObject
     private CategoryNavigationItemViewModel? selectedNavigationItem;
     private string repositoryUrlToAdd = string.Empty;
     private string libraryRoot;
+    private string? latestReportPath;
     private int runProgressCompleted;
     private int runProgressTotal;
     private string currentProgressMessage = "Ready";
@@ -451,7 +452,9 @@ public sealed class MainShellViewModel : ObservableObject
     public string LaunchErrorMessage => launchErrorMessage;
     public bool HasLaunchStatus => !string.IsNullOrWhiteSpace(LaunchStatusMessage);
     public bool HasLaunchError => !string.IsNullOrWhiteSpace(LaunchErrorMessage);
-    public string LatestReportPath => Path.Combine(LibraryRoot, GitPullerReportWriter.LatestReportFileName);
+    public string LatestReportPath => string.IsNullOrWhiteSpace(latestReportPath)
+        ? Path.Combine(LibraryRoot, GitPullerReportWriter.LatestReportFileName)
+        : latestReportPath;
     public bool CanOpenSelectedRepositoryFolder =>
         launcher is not null
         && !string.IsNullOrWhiteSpace(SelectedResult?.Path);
@@ -1490,15 +1493,19 @@ public sealed class MainShellViewModel : ObservableObject
             UpsertRepositoryResult(result, FindRepositoryDescriptor(result.Path));
         }
 
+        SetLatestReportPath(runResult.LatestReportPath);
+
         if (!string.IsNullOrWhiteSpace(runResult.ErrorMessage))
         {
-            SetRunError(runResult.ErrorMessage);
+            SetRunError(AppendReportPath(runResult.ErrorMessage, runResult.LatestReportPath));
         }
 
         SetRunProgress(
             runResult.TotalRepositories,
             runResult.TotalRepositories,
-            runResult.HasFailures ? "Sync completed with items to review." : "Sync completed.");
+            AppendReportPath(
+                runResult.HasFailures ? "Sync completed with items to review." : "Sync completed.",
+                runResult.LatestReportPath));
     }
 
     private void ClearLoadedRunState()
@@ -1506,6 +1513,7 @@ public sealed class MainShellViewModel : ObservableObject
         currentLibraryLoad = null;
         currentRunRequest = null;
         runCompletionApplied = false;
+        SetLatestReportPath(null);
 
         Categories.Clear();
         RemovedRepositories.Clear();
@@ -1529,6 +1537,32 @@ public sealed class MainShellViewModel : ObservableObject
             RepositoryResults.Clear();
             SelectedResult = null;
         }
+    }
+
+    private void SetLatestReportPath(string? path)
+    {
+        var normalizedPath = string.IsNullOrWhiteSpace(path)
+            ? null
+            : Path.GetFullPath(path);
+        if (string.Equals(latestReportPath, normalizedPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        latestReportPath = normalizedPath;
+        OnPropertyChanged(nameof(LatestReportPath));
+        OnPropertyChanged(nameof(CanOpenLatestReport));
+        RaiseCommandCanExecuteChanged();
+    }
+
+    private static string AppendReportPath(string message, string? reportPath)
+    {
+        if (string.IsNullOrWhiteSpace(reportPath))
+        {
+            return message;
+        }
+
+        return $"{message} Report: {Path.GetFileName(reportPath)} ({reportPath})";
     }
 
     private void ReplaceRemovedRepositories(IEnumerable<RemovedRepositoryRecord> removedRepositories)

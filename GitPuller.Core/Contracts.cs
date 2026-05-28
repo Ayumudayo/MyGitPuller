@@ -23,6 +23,8 @@ public sealed class GitPullerRunResult
     public DateTimeOffset CompletedAt { get; init; }
     public TimeSpan Elapsed { get; init; }
     public string? ErrorMessage { get; init; }
+    public string? LatestReportPath { get; init; }
+    public string? RunReportPath { get; init; }
 
     public int TotalRepositories => RepositoryResults.Count;
     public int SuccessCount => RepositoryResults.Count(x => !x.Failed);

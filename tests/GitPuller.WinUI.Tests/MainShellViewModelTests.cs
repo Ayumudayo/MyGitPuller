@@ -810,6 +810,79 @@ public sealed class MainShellViewModelTests
         Assert.Contains(reportPath, launcher.LaunchedPaths);
     }
 
+    [Fact]
+    public async Task RunSyncAsync_ExposesFreshLatestReportPathAndStatusMessage()
+    {
+        var libraryRoot = Path.Combine(TestRoot, "libraries", Guid.NewGuid().ToString("N"));
+        var repository = new RepositoryDescriptor(
+            Path.Combine(libraryRoot, "Plugins", "ReportRepo"),
+            "ReportRepo",
+            "Plugins",
+            "https://github.com/example/ReportRepo.git");
+        var loadResult = new GitPullerLibraryLoadResult(
+            libraryRoot,
+            new GitPullerOptions(),
+            new RepositoryInventory(libraryRoot, [repository]),
+            [],
+            ["Plugins"]);
+        var latestReportRoot = Path.Combine(TestRoot, "reports", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(latestReportRoot);
+        var latestReportPath = Path.Combine(latestReportRoot, GitPullerReportWriter.LatestReportFileName);
+        await File.WriteAllTextAsync(latestReportPath, "# Git Update Report");
+
+        var service = new FakeGitPullerSyncService(loadResult);
+        service.RunAllAsyncHandler = (_, _, _) => Task.FromResult(new GitPullerRunResult
+        {
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            RepositoryResults = [RepoResultFor(repository, failed: false, newCommits: 2, diagnostic: null)],
+            LatestReportPath = latestReportPath,
+            RunReportPath = Path.Combine(latestReportRoot, "git_update_report-20260529-120000-000.md")
+        });
+
+        var launcher = new FakeFileSystemLauncher();
+        var viewModel = new MainShellViewModel(libraryRoot, service, launcher: launcher);
+
+        await viewModel.RunSyncAsync();
+
+        Assert.Equal(latestReportPath, viewModel.LatestReportPath);
+        Assert.True(viewModel.CanOpenLatestReport);
+        Assert.Contains(GitPullerReportWriter.LatestReportFileName, viewModel.RunStatusMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CoreGitPullerSyncService_RunAllAsync_WritesReportsAndReturnsPaths()
+    {
+        var scenarioRoot = Path.Combine(TestRoot, "sync-service", Guid.NewGuid().ToString("N"));
+        var libraryRoot = Path.Combine(scenarioRoot, "library");
+        var repositoryPath = Path.Combine(libraryRoot, "Plugins", "ReportRepo");
+        Directory.CreateDirectory(Path.GetDirectoryName(repositoryPath)!);
+
+        var remotePath = CreateBareRemoteRepository(scenarioRoot, "report-repo");
+        RunGit(scenarioRoot, "clone", "--branch", "main", remotePath, repositoryPath);
+
+        var request = new GitPullerRunRequest(
+            new GitPullerOptions(),
+            new RepositoryInventory(
+                libraryRoot,
+                [
+                    new RepositoryDescriptor(
+                        repositoryPath,
+                        "ReportRepo",
+                        "Plugins",
+                        remotePath)
+                ]));
+
+        var service = new CoreGitPullerSyncService();
+        var result = await service.RunAllAsync(request, progress: null, CancellationToken.None);
+
+        Assert.Equal(Path.Combine(libraryRoot, GitPullerReportWriter.LatestReportFileName), result.LatestReportPath);
+        Assert.NotNull(result.RunReportPath);
+        Assert.True(File.Exists(result.LatestReportPath));
+        Assert.True(File.Exists(result.RunReportPath));
+        Assert.Contains("# Git Update Report", await File.ReadAllTextAsync(result.LatestReportPath));
+    }
+
     [Theory]
     [InlineData("git@github.com:owner/repo.git", "https://github.com/owner/repo")]
     [InlineData("git@github-bf:bloooowfish/MyGitPuller.git", "https://github.com/bloooowfish/MyGitPuller")]

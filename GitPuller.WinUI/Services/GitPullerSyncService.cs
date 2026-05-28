@@ -106,9 +106,24 @@ public sealed class CoreGitPullerSyncService : IGitPullerSyncService
         IProgress<GitPullerProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
-        var runResult = await runner.RunAllAsync(request, progress, cancellationToken).ConfigureAwait(false);
-        GitPullerReportWriter.WriteReports(request.Inventory.LibraryRoot, runResult, request.Options);
-        return runResult;
+        var progressProxy = progress is null
+            ? null
+            : new RunCompletedDeferringProgress(progress);
+        var runResult = await runner.RunAllAsync(request, progressProxy, cancellationToken).ConfigureAwait(false);
+        var reportResult = GitPullerReportWriter.WriteReports(request.Inventory.LibraryRoot, runResult, request.Options);
+        var completedResult = new GitPullerRunResult
+        {
+            RepositoryResults = runResult.RepositoryResults,
+            StartedAt = runResult.StartedAt,
+            CompletedAt = runResult.CompletedAt,
+            Elapsed = runResult.Elapsed,
+            ErrorMessage = runResult.ErrorMessage,
+            LatestReportPath = reportResult.LatestReportPath,
+            RunReportPath = reportResult.RunReportPath
+        };
+
+        progress?.Report(GitPullerProgressEvent.RunCompleted(completedResult));
+        return completedResult;
     }
 
     public Task<RepoResult> RetryRepositoryAsync(
@@ -118,5 +133,23 @@ public sealed class CoreGitPullerSyncService : IGitPullerSyncService
         CancellationToken cancellationToken)
     {
         return runner.RetryRepositoryAsync(previousRunRequest, repoPath, progress, cancellationToken);
+    }
+}
+
+internal sealed class RunCompletedDeferringProgress : IProgress<GitPullerProgressEvent>
+{
+    private readonly IProgress<GitPullerProgressEvent> inner;
+
+    public RunCompletedDeferringProgress(IProgress<GitPullerProgressEvent> inner)
+    {
+        this.inner = inner;
+    }
+
+    public void Report(GitPullerProgressEvent value)
+    {
+        if (value.Kind != GitPullerProgressEventKind.RunCompleted)
+        {
+            inner.Report(value);
+        }
     }
 }
