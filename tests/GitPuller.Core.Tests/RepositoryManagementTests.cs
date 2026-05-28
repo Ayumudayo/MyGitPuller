@@ -663,6 +663,67 @@ public sealed class RepositoryManagementTests : IDisposable
     }
 
     [Fact]
+    public void Preview_RejectsSchemeLikeRemoteWithoutHostPathShape()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var service = new RepositoryCloneService();
+
+        var noSuchSchemePreview = service.Preview(new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "nosuchscheme:repo.git"));
+
+        var mailToPreview = service.Preview(new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "mailto:repo.git"));
+
+        Assert.False(noSuchSchemePreview.IsValid);
+        Assert.NotNull(noSuchSchemePreview.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, noSuchSchemePreview.Diagnostic.Category);
+
+        Assert.False(mailToPreview.IsValid);
+        Assert.NotNull(mailToPreview.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, mailToPreview.Diagnostic.Category);
+    }
+
+    [Fact]
+    public void Preview_RejectsReservedDosDeviceRepositoryName()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "https://example.com/CON.git");
+        var service = new RepositoryCloneService();
+
+        var preview = service.Preview(request);
+
+        Assert.False(preview.IsValid);
+        Assert.NotNull(preview.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, preview.Diagnostic.Category);
+        Assert.Contains("reserved", preview.Diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Preview_RejectsReservedDosDeviceCategoryName()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            "NUL",
+            "https://github.com/goatcorp/Dalamud.git");
+        var service = new RepositoryCloneService();
+
+        var preview = service.Preview(request);
+
+        Assert.False(preview.IsValid);
+        Assert.NotNull(preview.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, preview.Diagnostic.Category);
+        Assert.Contains("reserved", preview.Diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Clone_ClonesFromLocalBareRepository_AndReturnsConfigReadyDescriptor()
     {
         var scenarioRoot = Path.Combine(tempRoot, "CloneFromLocalBareRepository");
@@ -722,6 +783,28 @@ public sealed class RepositoryManagementTests : IDisposable
         Assert.False(result.GitCommandExecuted);
         Assert.NotNull(result.Diagnostic);
         Assert.Equal(FailureCategory.InvalidCloneRequest, result.Diagnostic.Category);
+    }
+
+    [Fact]
+    public void Clone_WithCanceledToken_ThrowsOperationCanceledException()
+    {
+        var scenarioRoot = Path.Combine(tempRoot, "CloneCanceled");
+        var libraryRoot = Path.Combine(scenarioRoot, "Library");
+        var remotePath = CreateBareRemoteRepository(scenarioRoot, "Dalamud");
+        var request = new RepositoryAddRequest(libraryRoot, "Plugins", remotePath);
+        var service = new RepositoryCloneService();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        var exception = Assert.Throws<OperationCanceledException>(() => service.Clone(
+            request,
+            new GitPullerOptions
+            {
+                GitTimeoutMilliseconds = 5000
+            },
+            cancellationTokenSource.Token));
+
+        Assert.Equal(cancellationTokenSource.Token, exception.CancellationToken);
     }
 
     public void Dispose()

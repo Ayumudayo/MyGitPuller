@@ -16,6 +16,32 @@ public sealed class RepositoryCloneService
         "node_modules"
     };
 
+    private static readonly HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "COM1",
+        "COM2",
+        "COM3",
+        "COM4",
+        "COM5",
+        "COM6",
+        "COM7",
+        "COM8",
+        "COM9",
+        "LPT1",
+        "LPT2",
+        "LPT3",
+        "LPT4",
+        "LPT5",
+        "LPT6",
+        "LPT7",
+        "LPT8",
+        "LPT9"
+    };
+
     public RepositoryAddPreview Preview(RepositoryAddRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -94,6 +120,7 @@ public sealed class RepositoryCloneService
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(options);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var preview = Preview(request);
         if (!preview.IsValid || preview.Repository is null)
@@ -228,6 +255,10 @@ public sealed class RepositoryCloneService
             }
 
             return FinalizeResult(result, operation, process.ExitCode);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -424,7 +455,13 @@ public sealed class RepositoryCloneService
             return false;
         }
 
-        repositoryName = ExtractRepositoryName(match.Groups["path"].Value);
+        var path = match.Groups["path"].Value;
+        if (path.IndexOf('/') < 0)
+        {
+            return false;
+        }
+
+        repositoryName = ExtractRepositoryName(path);
         return !string.IsNullOrWhiteSpace(repositoryName);
     }
 
@@ -507,6 +544,16 @@ public sealed class RepositoryCloneService
             diagnostic = CreateInvalidRequestDiagnostic(
                 title: "Category or repository name is reserved",
                 explanation: "Repository categories and folder names cannot normalize into reserved directories such as .mygitpuller, .git, .vs, bin, obj, or node_modules.",
+                evidence: normalizedValue,
+                relatedPath: null);
+            return false;
+        }
+
+        if (IsReservedDeviceName(normalizedValue))
+        {
+            diagnostic = CreateInvalidRequestDiagnostic(
+                title: "Category or repository name is reserved",
+                explanation: "Category and repository folder names cannot use reserved DOS device names such as CON, PRN, AUX, NUL, COM1-COM9, or LPT1-LPT9.",
                 evidence: normalizedValue,
                 relatedPath: null);
             return false;
@@ -653,6 +700,17 @@ public sealed class RepositoryCloneService
         catch
         {
         }
+    }
+
+    private static bool IsReservedDeviceName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var deviceCandidate = value.Split('.', 2)[0];
+        return ReservedDeviceNames.Contains(deviceCandidate);
     }
 }
 
