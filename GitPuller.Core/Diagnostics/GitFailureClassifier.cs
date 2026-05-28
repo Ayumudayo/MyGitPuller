@@ -361,6 +361,7 @@ public static class GitFailureClassifier
         }
 
         return command.IndexOf("git fetch", StringComparison.OrdinalIgnoreCase) >= 0
+            || command.IndexOf("git clone", StringComparison.OrdinalIgnoreCase) >= 0
             || command.IndexOf("git pull", StringComparison.OrdinalIgnoreCase) >= 0
             || command.IndexOf("submodule fetch", StringComparison.OrdinalIgnoreCase) >= 0
             || command.IndexOf("submodule update", StringComparison.OrdinalIgnoreCase) >= 0

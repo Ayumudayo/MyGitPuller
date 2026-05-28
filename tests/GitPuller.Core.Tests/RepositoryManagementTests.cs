@@ -573,6 +573,96 @@ public sealed class RepositoryManagementTests : IDisposable
     }
 
     [Fact]
+    public void Preview_RejectsRepositoryNameThatEndsWithTrailingDotOrSpace()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var service = new RepositoryCloneService();
+
+        var previewWithDot = service.Preview(new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "https://example.com/.mygitpuller..git"));
+
+        var previewWithSpace = service.Preview(new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "https://example.com/RepoWithSpace%20.git"));
+
+        Assert.False(previewWithDot.IsValid);
+        Assert.NotNull(previewWithDot.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, previewWithDot.Diagnostic.Category);
+        Assert.Contains("trailing", previewWithDot.Diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+
+        Assert.False(previewWithSpace.IsValid);
+        Assert.NotNull(previewWithSpace.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, previewWithSpace.Diagnostic.Category);
+        Assert.Contains("trailing", previewWithSpace.Diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Preview_RejectsCategorySegmentThatEndsWithTrailingDotOrSpace()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var service = new RepositoryCloneService();
+
+        var previewWithDot = service.Preview(new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins.",
+            "https://github.com/goatcorp/Dalamud.git"));
+
+        var previewWithSpace = service.Preview(new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins \\Archive",
+            "https://github.com/goatcorp/Dalamud.git"));
+
+        Assert.False(previewWithDot.IsValid);
+        Assert.NotNull(previewWithDot.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, previewWithDot.Diagnostic.Category);
+        Assert.Contains("trailing", previewWithDot.Diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+
+        Assert.False(previewWithSpace.IsValid);
+        Assert.NotNull(previewWithSpace.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, previewWithSpace.Diagnostic.Category);
+        Assert.Contains("trailing", previewWithSpace.Diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Preview_RejectsUnsupportedAbsoluteUriScheme_WithoutTreatingItAsLocalPath()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "nosuchscheme://example.com/repo.git");
+        var service = new RepositoryCloneService();
+
+        var preview = service.Preview(request);
+
+        Assert.False(preview.IsValid);
+        Assert.NotNull(preview.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, preview.Diagnostic.Category);
+        Assert.Contains("valid Git URL", preview.Diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Preview_AcceptsScpLikeAliasRemote_AndDerivesRepositoryName()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "github-bf:owner/Dalamud.git");
+        var service = new RepositoryCloneService();
+
+        var preview = service.Preview(request);
+
+        Assert.True(preview.IsValid);
+        Assert.Equal("Dalamud", preview.RepositoryName);
+        Assert.Equal(Path.Combine(Path.GetFullPath(libraryRoot), "Plugins", "Dalamud"), preview.TargetPath);
+        Assert.Equal("github-bf:owner/Dalamud.git", preview.Repository!.RemoteUrl);
+    }
+
+    [Fact]
     public void Clone_ClonesFromLocalBareRepository_AndReturnsConfigReadyDescriptor()
     {
         var scenarioRoot = Path.Combine(tempRoot, "CloneFromLocalBareRepository");
@@ -611,6 +701,27 @@ public sealed class RepositoryManagementTests : IDisposable
         Assert.Equal(FailureCategory.InvalidCloneRequest, result.Diagnostic.Category);
         Assert.Null(result.Repository);
         Assert.False(Directory.Exists(Path.Combine(libraryRoot, "Plugins", "definitely not a clone source")));
+    }
+
+    [Fact]
+    public void Clone_WithOptionsOverload_PreservesValidationShortCircuit()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(libraryRoot, "Plugins", "definitely not a clone source");
+        var service = new RepositoryCloneService();
+
+        var result = service.Clone(
+            request,
+            new GitPullerOptions
+            {
+                GitTimeoutMilliseconds = 1234
+            },
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.False(result.GitCommandExecuted);
+        Assert.NotNull(result.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, result.Diagnostic.Category);
     }
 
     public void Dispose()

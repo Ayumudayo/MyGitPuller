@@ -6,6 +6,16 @@ namespace GitPuller;
 
 public sealed class RepositoryCloneService
 {
+    private static readonly HashSet<string> ReservedTargetNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".git",
+        ".mygitpuller",
+        ".vs",
+        "bin",
+        "obj",
+        "node_modules"
+    };
+
     public RepositoryAddPreview Preview(RepositoryAddRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -14,7 +24,7 @@ public sealed class RepositoryCloneService
         var remoteUrl = request.RemoteUrl?.Trim() ?? string.Empty;
         var categoryText = request.Category?.Trim() ?? string.Empty;
 
-        if (!TryDeriveRepositoryName(remoteUrl, out var repositoryName))
+        if (!TryDeriveRepositoryName(remoteUrl, out var repositoryName, out var repositoryNameFailure))
         {
             return CreateInvalidPreview(
                 libraryRoot,
@@ -22,9 +32,12 @@ public sealed class RepositoryCloneService
                 remoteUrl,
                 repositoryName: string.Empty,
                 targetPath: string.Empty,
-                title: "Clone URL is invalid",
-                explanation: "The clone source must be a valid Git URL, SSH remote, or local repository path.",
-                evidence: string.IsNullOrWhiteSpace(remoteUrl) ? "Clone source was empty." : remoteUrl);
+                repositoryNameFailure
+                ?? CreateInvalidRequestDiagnostic(
+                    title: "Clone URL is invalid",
+                    explanation: "The clone source must be a valid Git URL, SSH remote, or local repository path.",
+                    evidence: string.IsNullOrWhiteSpace(remoteUrl) ? "Clone source was empty." : remoteUrl,
+                    relatedPath: null));
         }
 
         if (!TryNormalizeCategorySegments(categoryText, out var categorySegments, out var normalizedCategory, out var categoryFailure))
@@ -74,7 +87,13 @@ public sealed class RepositoryCloneService
 
     public RepositoryAddResult Clone(RepositoryAddRequest request)
     {
+        return Clone(request, new GitPullerOptions(), CancellationToken.None);
+    }
+
+    public RepositoryAddResult Clone(RepositoryAddRequest request, GitPullerOptions options, CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(options);
 
         var preview = Preview(request);
         if (!preview.IsValid || preview.Repository is null)
@@ -82,7 +101,7 @@ public sealed class RepositoryCloneService
             return new RepositoryAddResult(preview, Repository: null, preview.Diagnostic, GitResult: null);
         }
 
-        var gitResult = RunClone(preview);
+        var gitResult = RunClone(preview, options, cancellationToken);
         if (gitResult.Failed)
         {
             var diagnostic = gitResult.Diagnostic ?? GitFailureClassifier.Classify(gitResult);
@@ -92,7 +111,7 @@ public sealed class RepositoryCloneService
         return new RepositoryAddResult(preview, preview.Repository, Diagnostic: null, gitResult);
     }
 
-    private static RepoResult RunClone(RepositoryAddPreview preview)
+    private static RepoResult RunClone(RepositoryAddPreview preview, GitPullerOptions options, CancellationToken cancellationToken)
     {
         var startedAt = DateTimeOffset.UtcNow;
         var result = new RepoResult
@@ -136,6 +155,7 @@ public sealed class RepositoryCloneService
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using var process = Process.Start(processStartInfo);
             if (process == null)
             {
@@ -151,28 +171,36 @@ public sealed class RepositoryCloneService
 
             var standardOutput = process.StandardOutput.ReadToEndAsync();
             var standardError = process.StandardError.ReadToEndAsync();
-            if (!process.WaitForExit(60000))
+            var timeoutMilliseconds = Math.Max(1, options.GitTimeoutMilliseconds);
+            var timeoutStopwatch = Stopwatch.StartNew();
+            using var cancellationRegistration = cancellationToken.Register(static state =>
             {
-                try
+                if (state is Process processToCancel)
                 {
-                    if (!process.HasExited)
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
+                    TryKillProcess(processToCancel);
                 }
-                catch
+            }, process);
+
+            while (!process.WaitForExit(Math.Min(100, timeoutMilliseconds)))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (timeoutStopwatch.ElapsedMilliseconds < timeoutMilliseconds)
                 {
+                    continue;
                 }
+
+                TryKillProcess(process);
 
                 Task.WaitAll(standardOutput, standardError);
                 result.Failed = true;
                 result.Logs.Add(new LogItem
                 {
-                    Text = $"Timeout (60s){Environment.NewLine}Command: {operation.Command}",
+                    Text = $"Timeout ({timeoutMilliseconds} ms){Environment.NewLine}Command: {operation.Command}",
                     IsError = true
                 });
-                result.Diagnostic = CreateUnknownGitFailure(result, "Git clone timed out.", operation.Command);
-                return FinalizeResult(result, operation, exitCode: -1, timedOut: true);
+                var timedOutResult = FinalizeResult(result, operation, exitCode: -1, timedOut: true);
+                timedOutResult.Diagnostic = GitFailureClassifier.Classify(timedOutResult);
+                return timedOutResult;
             }
 
             Task.WaitAll(standardOutput, standardError);
@@ -303,7 +331,7 @@ public sealed class RepositoryCloneService
         }
 
         categorySegments = category
-            .Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            .Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
 
         if (categorySegments.Length == 0)
         {
@@ -318,7 +346,7 @@ public sealed class RepositoryCloneService
 
         for (var index = 0; index < categorySegments.Length; index++)
         {
-            if (!TryValidatePathSegment(categorySegments[index], allowReservedDotMyGitPuller: false, out diagnostic))
+            if (!TryValidatePathSegment(categorySegments[index], out diagnostic))
             {
                 normalizedCategory = string.Join('/', categorySegments);
                 return false;
@@ -330,19 +358,30 @@ public sealed class RepositoryCloneService
         return true;
     }
 
-    private static bool TryDeriveRepositoryName(string remoteUrl, out string repositoryName)
+    private static bool TryDeriveRepositoryName(string remoteUrl, out string repositoryName, out FailureDiagnostic? diagnostic)
     {
         repositoryName = string.Empty;
+        diagnostic = null;
         if (string.IsNullOrWhiteSpace(remoteUrl))
         {
             return false;
         }
 
-        if (TryDeriveRepositoryNameFromUri(remoteUrl, out repositoryName)
-            || TryDeriveRepositoryNameFromScpLikeRemote(remoteUrl, out repositoryName)
-            || TryDeriveRepositoryNameFromLocalPath(remoteUrl, out repositoryName))
+        if (TryDeriveRepositoryNameFromUri(remoteUrl, out repositoryName))
         {
-            return TryValidatePathSegment(repositoryName, allowReservedDotMyGitPuller: false, out _);
+            return TryValidatePathSegment(repositoryName, out diagnostic);
+        }
+
+        if (LooksLikeUnsupportedAbsoluteUri(remoteUrl))
+        {
+            repositoryName = string.Empty;
+            return false;
+        }
+
+        if (TryDeriveRepositoryNameFromLocalPath(remoteUrl, out repositoryName)
+            || TryDeriveRepositoryNameFromScpLikeRemote(remoteUrl, out repositoryName))
+        {
+            return TryValidatePathSegment(repositoryName, out diagnostic);
         }
 
         repositoryName = string.Empty;
@@ -366,15 +405,21 @@ public sealed class RepositoryCloneService
             return false;
         }
 
-        repositoryName = ExtractRepositoryName(uri.IsFile ? uri.LocalPath : uri.AbsolutePath);
+        repositoryName = ExtractRepositoryName(uri.IsFile ? uri.LocalPath : Uri.UnescapeDataString(uri.AbsolutePath));
         return !string.IsNullOrWhiteSpace(repositoryName);
     }
 
     private static bool TryDeriveRepositoryNameFromScpLikeRemote(string remoteUrl, out string repositoryName)
     {
         repositoryName = string.Empty;
-        var match = Regex.Match(remoteUrl, @"^[^@\s]+@[^:\s]+:(?<path>.+)$", RegexOptions.CultureInvariant);
+        var match = Regex.Match(remoteUrl, @"^(?<host>[^\s/:]+):(?<path>[^\\].+)$", RegexOptions.CultureInvariant);
         if (!match.Success)
+        {
+            return false;
+        }
+
+        var host = match.Groups["host"].Value;
+        if (host.Length == 1 && char.IsLetter(host[0]))
         {
             return false;
         }
@@ -399,7 +444,7 @@ public sealed class RepositoryCloneService
 
     private static string ExtractRepositoryName(string pathOrUrl)
     {
-        var trimmed = pathOrUrl.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, '/');
+        var trimmed = pathOrUrl.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, '/');
         if (string.IsNullOrWhiteSpace(trimmed))
         {
             return string.Empty;
@@ -411,17 +456,17 @@ public sealed class RepositoryCloneService
             name = name[..^4];
         }
 
-        return name.Trim();
+        return name;
     }
 
-    private static bool TryValidatePathSegment(string value, bool allowReservedDotMyGitPuller, out FailureDiagnostic? diagnostic)
+    private static bool TryValidatePathSegment(string value, out FailureDiagnostic? diagnostic)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
             diagnostic = CreateInvalidRequestDiagnostic(
-                title: "Category contains an empty segment",
-                explanation: "Category path segments must not be empty.",
-                evidence: "Encountered an empty category segment.",
+                title: "Category or repository name is empty",
+                explanation: "Category path segments and repository folder names must not be empty.",
+                evidence: "Encountered an empty category or repository segment.",
                 relatedPath: null);
             return false;
         }
@@ -436,28 +481,59 @@ public sealed class RepositoryCloneService
             return false;
         }
 
-        if (!allowReservedDotMyGitPuller && string.Equals(value, ".mygitpuller", StringComparison.OrdinalIgnoreCase))
+        if (value.EndsWith(' ') || value.EndsWith('.'))
         {
             diagnostic = CreateInvalidRequestDiagnostic(
-                title: "Category points into .mygitpuller",
-                explanation: "Repository categories and folder names cannot place repositories inside the reserved .mygitpuller area.",
+                title: "Category or repository name has trailing characters",
+                explanation: "Category and repository folder names cannot end with a trailing period or space because Windows normalizes them to a different path.",
                 evidence: value,
                 relatedPath: null);
             return false;
         }
 
-        if (value.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        var normalizedValue = NormalizeTargetSegment(value);
+        if (string.IsNullOrWhiteSpace(normalizedValue))
+        {
+            diagnostic = CreateInvalidRequestDiagnostic(
+                title: "Category or repository name normalizes to an empty segment",
+                explanation: "Category and repository folder names must remain non-empty after Windows path normalization.",
+                evidence: value,
+                relatedPath: null);
+            return false;
+        }
+
+        if (ReservedTargetNames.Contains(normalizedValue))
+        {
+            diagnostic = CreateInvalidRequestDiagnostic(
+                title: "Category or repository name is reserved",
+                explanation: "Repository categories and folder names cannot normalize into reserved directories such as .mygitpuller, .git, .vs, bin, obj, or node_modules.",
+                evidence: normalizedValue,
+                relatedPath: null);
+            return false;
+        }
+
+        if (normalizedValue.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
         {
             diagnostic = CreateInvalidRequestDiagnostic(
                 title: "Category or repository name is invalid",
                 explanation: "Category and repository folder names must be valid filesystem path segments.",
-                evidence: value,
+                evidence: normalizedValue,
                 relatedPath: null);
             return false;
         }
 
         diagnostic = null;
         return true;
+    }
+
+    private static bool LooksLikeUnsupportedAbsoluteUri(string remoteUrl)
+    {
+        return remoteUrl.Contains("://", StringComparison.Ordinal);
+    }
+
+    private static string NormalizeTargetSegment(string value)
+    {
+        return value.TrimEnd(' ', '.');
     }
 
     private static bool IsPathUnderRoot(string path, string root)
@@ -563,6 +639,20 @@ public sealed class RepositoryCloneService
     private static string QuoteArgument(string value)
     {
         return $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
+    }
+
+    private static void TryKillProcess(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+        }
     }
 }
 

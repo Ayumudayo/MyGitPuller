@@ -227,6 +227,25 @@ public sealed class GitFailureClassifierTests : IDisposable
     }
 
     [Fact]
+    public void Classify_ClassifiesTimedOutCloneAsNetworkTimeout()
+    {
+        var result = CreateResult(failed: true, "Clone failed after retries:\nfatal: transport disconnected unexpectedly");
+        result.Operations.Add(new RepoOperation
+        {
+            Command = "git clone https://example.invalid/repo.git C:\\Repos\\RepoA",
+            WorkingDirectory = Path.GetDirectoryName(result.Path)!,
+            ExitCode = -1,
+            TimedOut = true
+        });
+
+        var diagnostic = GitFailureClassifier.Classify(result);
+
+        Assert.Equal(FailureCategory.NetworkTimeout, diagnostic.Category);
+        Assert.Equal(RetryPolicy.Recommended, diagnostic.RetryPolicy);
+        Assert.Equal("git clone https://example.invalid/repo.git C:\\Repos\\RepoA", diagnostic.RelatedCommand);
+    }
+
+    [Fact]
     public void Classify_DoesNotTreatTimedOutLocalResetAsNetworkTimeout()
     {
         var result = CreateResult(failed: true, "Timeout (60s)\nCommand: git reset --hard origin/main");
