@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -63,6 +64,12 @@ namespace GitPuller
                 }
 
                 if (!ValidateAndNormalizeSettings())
+                {
+                    return 1;
+                }
+
+                using var rootLease = TryAcquireRootMutex();
+                if (rootLease == null)
                 {
                     return 1;
                 }
@@ -583,6 +590,44 @@ namespace GitPuller
             }
         }
 
+        private static RootMutexLease? TryAcquireRootMutex()
+        {
+            var normalized = rootDir
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .ToUpperInvariant();
+            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)));
+            var mutexName = $"MyGitPuller_Root_{hash}";
+            var mutex = new Mutex(false, mutexName);
+
+            try
+            {
+                if (!mutex.WaitOne(gitTimeoutMilliseconds))
+                {
+                    mutex.Dispose();
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"Another GitPuller instance is already processing this root: {rootDir}");
+                    Console.ResetColor();
+                    return null;
+                }
+            }
+            catch (AbandonedMutexException)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("Recovered an abandoned GitPuller root mutex; continuing after previous process exit.");
+                Console.ResetColor();
+            }
+            catch (Exception ex)
+            {
+                mutex.Dispose();
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Could not acquire root mutex: {ex.Message}");
+                Console.ResetColor();
+                return null;
+            }
+
+            return new RootMutexLease(mutex);
+        }
+
         private static void DrawProgress()
         {
             if (totalRepos == 0 || !supportsCursorControl || Console.IsOutputRedirected)
@@ -880,6 +925,35 @@ namespace GitPuller
         public void Report(T value)
         {
             handler(value);
+        }
+    }
+
+    internal sealed class RootMutexLease : IDisposable
+    {
+        private readonly Mutex mutex;
+        private bool disposed;
+
+        public RootMutexLease(Mutex mutex)
+        {
+            this.mutex = mutex;
+        }
+
+        public void Dispose()
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            disposed = true;
+            try
+            {
+                mutex.ReleaseMutex();
+            }
+            finally
+            {
+                mutex.Dispose();
+            }
         }
     }
 }

@@ -48,26 +48,8 @@ public sealed class GitPullerRunner
     {
         var startedAt = DateTimeOffset.Now;
         var stopwatch = Stopwatch.StartNew();
-        string? rootWarningMessage;
-        string? rootErrorMessage;
-        using var rootLease = TryAcquireRootMutex(request.Inventory.LibraryRoot, request.Options, out rootWarningMessage, out rootErrorMessage);
-        if (rootLease == null)
-        {
-            stopwatch.Stop();
-            return new GitPullerRunResult
-            {
-                StartedAt = startedAt,
-                CompletedAt = DateTimeOffset.Now,
-                Elapsed = stopwatch.Elapsed,
-                ErrorMessage = rootErrorMessage
-            };
-        }
-
         var repositories = request.Inventory.Repositories;
-        progress?.Report(GitPullerProgressEvent.RunStarted(
-            repositories.Count,
-            rootWarningMessage,
-            isWarning: !string.IsNullOrWhiteSpace(rootWarningMessage)));
+        progress?.Report(GitPullerProgressEvent.RunStarted(repositories.Count));
 
         var results = new ConcurrentBag<RepoResult>();
         var completedRepositories = 0;
@@ -114,41 +96,6 @@ public sealed class GitPullerRunner
     {
         var threadId = Environment.CurrentManagedThreadId;
         return workerSlotsByThreadId.GetOrAdd(threadId, _ => Interlocked.Increment(ref nextWorkerSlot));
-    }
-
-    private static RepoMutexLease? TryAcquireRootMutex(string libraryRoot, GitPullerOptions options, out string? warningMessage, out string? errorMessage)
-    {
-        warningMessage = null;
-        errorMessage = null;
-
-        var normalized = libraryRoot
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            .ToUpperInvariant();
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)));
-        var mutexName = $"MyGitPuller_Root_{hash}";
-        var mutex = new Mutex(false, mutexName);
-
-        try
-        {
-            if (!mutex.WaitOne(options.GitTimeoutMilliseconds))
-            {
-                mutex.Dispose();
-                errorMessage = $"Another GitPuller instance is already processing this root: {libraryRoot}";
-                return null;
-            }
-        }
-        catch (AbandonedMutexException)
-        {
-            warningMessage = "Recovered an abandoned GitPuller root mutex; continuing after previous process exit.";
-        }
-        catch (Exception ex)
-        {
-            mutex.Dispose();
-            errorMessage = $"Could not acquire root mutex: {ex.Message}";
-            return null;
-        }
-
-        return new RepoMutexLease(mutex);
     }
 
     private static RepoResult ProcessRepository(RepositoryDescriptor repository, GitPullerOptions options, CancellationToken cancellationToken)
