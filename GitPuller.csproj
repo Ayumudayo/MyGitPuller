@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -11,6 +11,7 @@
     <Compile Remove="GitPuller.WinUI\**" />
     <Content Remove="GitPuller.WinUI\**" />
     <EmbeddedResource Remove="GitPuller.WinUI\**" />
+    <None Remove="GitPuller.WinUI\**" />
   </ItemGroup>
 
 </Project>
