@@ -404,14 +404,18 @@ public sealed class RepositoryCloneService
             return TryValidatePathSegment(repositoryName, out diagnostic);
         }
 
-        if (LooksLikeUnsupportedAbsoluteUri(remoteUrl))
+        if (TryDeriveRepositoryNameFromScpLikeRemote(remoteUrl, out repositoryName))
+        {
+            return TryValidatePathSegment(repositoryName, out diagnostic);
+        }
+
+        if (IsUnsupportedUriLikeRemote(remoteUrl))
         {
             repositoryName = string.Empty;
             return false;
         }
 
-        if (TryDeriveRepositoryNameFromLocalPath(remoteUrl, out repositoryName)
-            || TryDeriveRepositoryNameFromScpLikeRemote(remoteUrl, out repositoryName))
+        if (TryDeriveRepositoryNameFromLocalPath(remoteUrl, out repositoryName))
         {
             return TryValidatePathSegment(repositoryName, out diagnostic);
         }
@@ -451,7 +455,7 @@ public sealed class RepositoryCloneService
         }
 
         var host = match.Groups["host"].Value;
-        if (host.Length == 1 && char.IsLetter(host[0]))
+        if (!IsSupportedScpLikeHost(host))
         {
             return false;
         }
@@ -572,6 +576,17 @@ public sealed class RepositoryCloneService
 
         diagnostic = null;
         return true;
+    }
+
+    private static bool IsUnsupportedUriLikeRemote(string remoteUrl)
+    {
+        if (LooksLikeUnsupportedAbsoluteUri(remoteUrl))
+        {
+            return true;
+        }
+
+        return remoteUrl.Contains(':', StringComparison.Ordinal)
+            && !Path.IsPathRooted(remoteUrl);
     }
 
     private static bool LooksLikeUnsupportedAbsoluteUri(string remoteUrl)
@@ -712,6 +727,23 @@ public sealed class RepositoryCloneService
 
         var deviceCandidate = value.Split('.', 2)[0];
         return ReservedDeviceNames.Contains(deviceCandidate);
+    }
+
+    private static bool IsSupportedScpLikeHost(string host)
+    {
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            return false;
+        }
+
+        if (host.Contains('@', StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return host.Contains('-', StringComparison.Ordinal)
+            || host.Contains('.', StringComparison.Ordinal)
+            || host.Contains('_', StringComparison.Ordinal);
     }
 }
 

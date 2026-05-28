@@ -689,6 +689,31 @@ public sealed class RepositoryManagementTests : IDisposable
     }
 
     [Fact]
+    public void Preview_RejectsUnsupportedSchemeLikeRemoteWithSlashPath()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var service = new RepositoryCloneService();
+
+        var noSuchSchemePreview = service.Preview(new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "nosuchscheme:owner/repo.git"));
+
+        var mailToPreview = service.Preview(new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "mailto:owner/repo.git"));
+
+        Assert.False(noSuchSchemePreview.IsValid);
+        Assert.NotNull(noSuchSchemePreview.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, noSuchSchemePreview.Diagnostic.Category);
+
+        Assert.False(mailToPreview.IsValid);
+        Assert.NotNull(mailToPreview.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, mailToPreview.Diagnostic.Category);
+    }
+
+    [Fact]
     public void Preview_RejectsReservedDosDeviceRepositoryName()
     {
         var libraryRoot = Path.Combine(tempRoot, "Library");
