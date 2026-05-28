@@ -57,6 +57,11 @@ public static class GitFailureClassifier
                 return CreateRecentLockDiagnostic(staleLockCleanupFailureEvidence, result);
             }
 
+            if (TryGetWarningEvidence(result, out var warningEvidence))
+            {
+                return CreateRepositoryWarningDiagnostic(warningEvidence, result);
+            }
+
             return CreateDiagnostic(
                 category: FailureCategory.None,
                 retryPolicy: RetryPolicy.NotApplicable,
@@ -229,6 +234,22 @@ public static class GitFailureClassifier
             relatedCommandSelector: operation => operation.ExitCode != 0 || operation.TimedOut);
     }
 
+    private static FailureDiagnostic CreateRepositoryWarningDiagnostic(string evidence, RepoResult result)
+    {
+        var (title, explanation, suggestedAction) = GetRepositoryWarningDetails(evidence);
+
+        return CreateDiagnostic(
+            category: FailureCategory.RepositoryWarning,
+            retryPolicy: RetryPolicy.NotApplicable,
+            severity: DiagnosticSeverity.Warning,
+            title: title,
+            explanation: explanation,
+            suggestedAction: suggestedAction,
+            evidence: evidence,
+            result,
+            relatedCommandSelector: null);
+    }
+
     private static string? GetRelatedCommand(RepoResult result, Func<RepoOperation, bool>? relatedCommandSelector)
     {
         if (result.Operations.Count == 0)
@@ -248,6 +269,61 @@ public static class GitFailureClassifier
         return result.Operations
             .LastOrDefault(operation => !string.IsNullOrWhiteSpace(operation.Command))
             ?.Command;
+    }
+
+    private static bool TryGetWarningEvidence(RepoResult result, out string evidence)
+    {
+        foreach (var log in result.Logs)
+        {
+            if (log.IsWarning && !string.IsNullOrWhiteSpace(log.Text))
+            {
+                evidence = log.Text;
+                return true;
+            }
+        }
+
+        evidence = string.Empty;
+        return false;
+    }
+
+    private static (string Title, string Explanation, string SuggestedAction) GetRepositoryWarningDetails(string evidence)
+    {
+        if (Contains(evidence, "git lfs fetch failed"))
+        {
+            return (
+                "Git LFS fetch warning needs review",
+                "The repository completed, but the Git LFS fetch step reported a warning.",
+                "Review the LFS warning and run 'git lfs fetch --all --prune' in the repository if required content is missing.");
+        }
+
+        if (Contains(evidence, "git clean failed"))
+        {
+            return (
+                "Repository cleanup warning needs review",
+                "The repository completed, but a git clean step reported a warning.",
+                "Inspect files that blocked cleanup and rerun the clean step if the repository should be left in a pristine state.");
+        }
+
+        if (Contains(evidence, "submodule"))
+        {
+            return (
+                "Submodule warning needs review",
+                "The repository completed, but a submodule operation reported a warning.",
+                "Inspect the warning for the affected submodule path or remote before deciding whether to rerun the submodule command.");
+        }
+
+        if (Contains(evidence, "could not set upstream"))
+        {
+            return (
+                "Branch upstream warning needs review",
+                "The repository completed, but Git could not set the upstream tracking branch automatically.",
+                "Verify the branch and remote-tracking configuration, then set the upstream manually if this branch should track a remote.");
+        }
+
+        return (
+            "Repository completed with warnings",
+            "The repository completed, but one or more warning entries were recorded.",
+            "Review the warning evidence to decide whether any follow-up action is needed.");
     }
 
     private static bool TryFindMatch(IEnumerable<string> texts, Func<string, bool> matcher, out string evidence)

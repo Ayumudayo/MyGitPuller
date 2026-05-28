@@ -62,6 +62,31 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public void RepositoryResult_FromResult_UsesWarningDiagnosticForSuccessfulWarningLog()
+    {
+        var result = new RepoResult
+        {
+            Path = Path.Combine(TestRoot, "Plugins", "WarningRepo"),
+            Name = "WarningRepo",
+            Failed = false,
+            Elapsed = TimeSpan.FromSeconds(1)
+        };
+        result.Logs.Add(new LogItem
+        {
+            Text = "Git LFS fetch failed:\nTimeout (60s)\nCommand: git lfs fetch --all --prune",
+            IsWarning = true
+        });
+        result.Diagnostic = GitFailureClassifier.Classify(result);
+
+        var viewModel = RepositoryResultViewModel.FromResult(result, Descriptor("Plugins", "WarningRepo"));
+
+        Assert.Equal(RepositoryResultStatus.Warning, viewModel.Status);
+        Assert.DoesNotContain("No failure signals detected.", viewModel.Evidence, StringComparison.Ordinal);
+        Assert.DoesNotContain("No retry needed", viewModel.DiagnosticTitle, StringComparison.Ordinal);
+        Assert.Contains("Git LFS fetch failed", viewModel.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CanAddRepositoryFromUrl_RequiresSelectedCategory()
     {
         var viewModel = CreateViewModel();

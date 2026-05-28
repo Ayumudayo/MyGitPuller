@@ -127,7 +127,18 @@ public sealed class RepositoryResultViewModel
             return RepositoryResultStatus.Failed;
         }
 
-        if (result.Diagnostic?.Severity == DiagnosticSeverity.Warning || result.Logs.Any(log => log.IsWarning))
+        if (result.Diagnostic is not null)
+        {
+            return result.Diagnostic.Severity switch
+            {
+                DiagnosticSeverity.Warning => RepositoryResultStatus.Warning,
+                _ => result.NewCommitsCount > 0
+                    ? RepositoryResultStatus.Updated
+                    : RepositoryResultStatus.Clean
+            };
+        }
+
+        if (result.Logs.Any(log => log.IsWarning))
         {
             return RepositoryResultStatus.Warning;
         }

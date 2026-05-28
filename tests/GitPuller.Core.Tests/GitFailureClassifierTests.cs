@@ -14,7 +14,9 @@ public sealed class GitFailureClassifierTests : IDisposable
     [Fact]
     public void Classify_ReturnsNone_ForSuccessfulCleanRepository()
     {
-        var result = CreateResult(failed: false, "Already up to date.");
+        var result = CreateResult(
+            failed: false,
+            CreateLogItem("Already up to date."));
 
         var diagnostic = GitFailureClassifier.Classify(result);
 
@@ -55,6 +57,23 @@ public sealed class GitFailureClassifierTests : IDisposable
         Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
         Assert.Equal(RetryActionState.Disabled, RetryPolicyPresentation.GetRetryActionState(diagnostic));
         Assert.Contains("Could not remove stale Git lock file", diagnostic.Evidence, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Classify_ReturnsRepositoryWarning_WhenSuccessfulRepositoryHasWarningLog()
+    {
+        var warningLog = "Git LFS fetch failed:\nTimeout (60s)\nCommand: git lfs fetch --all --prune";
+        var result = CreateResult(
+            failed: false,
+            CreateLogItem(warningLog, isWarning: true));
+
+        var diagnostic = GitFailureClassifier.Classify(result);
+
+        Assert.Equal(FailureCategory.RepositoryWarning, diagnostic.Category);
+        Assert.Equal(RetryPolicy.NotApplicable, diagnostic.RetryPolicy);
+        Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
+        Assert.NotEqual("No retry needed", diagnostic.Title);
+        Assert.Contains(warningLog, diagnostic.Evidence, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -11,7 +11,8 @@ public enum FailureCategory
     ClonePathConflict,
     InvalidCloneRequest,
     SubmoduleFailure,
-    UnknownGitFailure
+    UnknownGitFailure,
+    RepositoryWarning
 }
 
 public enum RetryPolicy
