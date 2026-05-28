@@ -33,26 +33,24 @@ public static class GitFailureClassifier
             .Where(text => !string.IsNullOrWhiteSpace(text))
             .ToArray();
 
-        if (TryFindMatch(logTexts, IsStaleLockRemovedText, out var staleLockEvidence))
-        {
-            return CreateDiagnostic(
-                category: FailureCategory.StaleLockRemoved,
-                retryPolicy: result.Failed ? RetryPolicy.Recommended : RetryPolicy.NotApplicable,
-                severity: DiagnosticSeverity.Warning,
-                title: "Stale Git lock file was removed",
-                explanation: result.Failed
-                    ? "A stale Git lock file was removed before the repository still failed."
-                    : "A stale Git lock file was removed and the repository completed without a blocking error.",
-                suggestedAction: result.Failed
-                    ? "Retry this repository once. If it fails again, inspect the latest Git error before continuing."
-                    : "No retry is needed unless later operations fail again.",
-                evidence: staleLockEvidence,
-                result,
-                relatedCommandSelector: operation => operation.TimedOut || operation.ExitCode != 0);
-        }
+        var hasStaleLockRemoval = TryFindMatch(logTexts, IsStaleLockRemovedText, out var staleLockEvidence);
 
         if (!result.Failed)
         {
+            if (hasStaleLockRemoval)
+            {
+                return CreateDiagnostic(
+                    category: FailureCategory.StaleLockRemoved,
+                    retryPolicy: RetryPolicy.NotApplicable,
+                    severity: DiagnosticSeverity.Warning,
+                    title: "Stale Git lock file was removed",
+                    explanation: "A stale Git lock file was removed and the repository completed without a blocking error.",
+                    suggestedAction: "No retry is needed unless later operations fail again.",
+                    evidence: staleLockEvidence,
+                    result,
+                    relatedCommandSelector: null);
+            }
+
             return CreateDiagnostic(
                 category: FailureCategory.None,
                 retryPolicy: RetryPolicy.NotApplicable,
@@ -154,6 +152,20 @@ public static class GitFailureClassifier
                 relatedCommandSelector: operation => operation.ExitCode != 0 || operation.TimedOut);
         }
 
+        if (hasStaleLockRemoval)
+        {
+            return CreateDiagnostic(
+                category: FailureCategory.StaleLockRemoved,
+                retryPolicy: RetryPolicy.Recommended,
+                severity: DiagnosticSeverity.Warning,
+                title: "Stale Git lock file was removed",
+                explanation: "A stale Git lock file was removed before the repository still failed, and no later specific Git failure category matched.",
+                suggestedAction: "Retry this repository once. If it fails again, inspect the latest Git error before continuing.",
+                evidence: staleLockEvidence,
+                result,
+                relatedCommandSelector: operation => operation.TimedOut || operation.ExitCode != 0);
+        }
+
         var unknownEvidence = logTexts.LastOrDefault()
             ?? "Repository failed without a matching Git failure pattern.";
 
@@ -230,6 +242,11 @@ public static class GitFailureClassifier
 
     private static bool IsRecentLockFailureText(string text)
     {
+        if (IsStaleLockRemovedText(text))
+        {
+            return false;
+        }
+
         return Contains(text, ".lock")
             || (Contains(text, "file exists") && Contains(text, "lock"))
             || Contains(text, "another git process seems to be running");
@@ -250,9 +267,9 @@ public static class GitFailureClassifier
     private static bool IsNetworkTimeoutText(string text)
     {
         return Contains(text, "timeout (")
-            || Contains(text, "timed out")
             || Contains(text, "operation timed out")
-            || Contains(text, "connection timed out");
+            || Contains(text, "connection timed out")
+            || (Contains(text, "unable to access") && Contains(text, "timed out"));
     }
 
     private static bool IsRemoteNotFoundOrNoAccessText(string text)

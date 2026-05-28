@@ -42,18 +42,48 @@ public sealed class GitFailureClassifierTests : IDisposable
     }
 
     [Fact]
-    public void Classify_PrefersStaleLockRemovedRetry_WhenRepositoryStillFails()
+    public void Classify_UsesStaleLockRemoved_WhenRepositoryFailedWithoutMoreSpecificMatch()
     {
         var result = CreateResult(
             failed: true,
-            "Removed stale Git lock file (18.0 min old): C:\\Repos\\RepoA\\.git\\index.lock",
-            "Fetch failed after retries:\nfatal: could not read from remote repository");
+            CreateLogItem("Removed stale Git lock file (18.0 min old): C:\\Repos\\RepoA\\.git\\index.lock", isWarning: true));
 
         var diagnostic = GitFailureClassifier.Classify(result);
 
         Assert.Equal(FailureCategory.StaleLockRemoved, diagnostic.Category);
         Assert.Equal(RetryPolicy.Recommended, diagnostic.RetryPolicy);
         Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
+    }
+
+    [Fact]
+    public void Classify_PrefersAuthenticationFailure_OverEarlierStaleLockWarning()
+    {
+        var result = CreateResult(
+            failed: true,
+            CreateLogItem("Removed stale Git lock file (18.0 min old): C:\\Repos\\RepoA\\.git\\index.lock", isWarning: true),
+            CreateLogItem("Fetch failed after retries:\nfatal: could not read from remote repository", isError: true));
+
+        var diagnostic = GitFailureClassifier.Classify(result);
+
+        Assert.Equal(FailureCategory.AuthenticationFailure, diagnostic.Category);
+        Assert.Equal(RetryPolicy.BlockedUntilAction, diagnostic.RetryPolicy);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains("could not read from remote repository", diagnostic.Evidence, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Classify_PrefersNetworkTimeout_OverEarlierStaleLockWarning()
+    {
+        var result = CreateResult(
+            failed: true,
+            CreateLogItem("Removed stale Git lock file (18.0 min old): C:\\Repos\\RepoA\\.git\\index.lock", isWarning: true),
+            CreateLogItem("Fetch failed after retries:\nTimeout (60s)\nCommand: git fetch --all --prune --prune-tags --tags --force", isError: true));
+
+        var diagnostic = GitFailureClassifier.Classify(result);
+
+        Assert.Equal(FailureCategory.NetworkTimeout, diagnostic.Category);
+        Assert.Equal(RetryPolicy.Recommended, diagnostic.RetryPolicy);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
     }
 
     [Theory]
@@ -107,6 +137,41 @@ public sealed class GitFailureClassifierTests : IDisposable
         Assert.Equal(RetryPolicy.Recommended, diagnostic.RetryPolicy);
         Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
         Assert.Equal("git fetch --all --prune --prune-tags --tags --force", diagnostic.RelatedCommand);
+    }
+
+    [Fact]
+    public void Classify_ClassifiesOperationOnlyTimeout_WhenCommandTimedOutWithoutTimeoutText()
+    {
+        var result = CreateResult(failed: true, "Fetch failed after retries:\nfatal: transport disconnected unexpectedly");
+        result.Operations.Add(new RepoOperation
+        {
+            Command = "git fetch --all --prune --prune-tags --tags --force",
+            WorkingDirectory = result.Path,
+            ExitCode = -1,
+            TimedOut = true
+        });
+
+        var diagnostic = GitFailureClassifier.Classify(result);
+
+        Assert.Equal(FailureCategory.NetworkTimeout, diagnostic.Category);
+        Assert.Equal(RetryPolicy.Recommended, diagnostic.RetryPolicy);
+        Assert.Equal("git fetch --all --prune --prune-tags --tags --force", diagnostic.RelatedCommand);
+    }
+
+    [Fact]
+    public void Classify_DoesNotTreatWorkerMutexTimeoutAsNetworkTimeout()
+    {
+        var result = CreateResult(
+            failed: true,
+            CreateLogItem(
+                $"Timed out waiting for another GitPuller worker using this repository: {Path.Combine(tempRoot, "RepoA")}",
+                isError: true));
+
+        var diagnostic = GitFailureClassifier.Classify(result);
+
+        Assert.Equal(FailureCategory.UnknownGitFailure, diagnostic.Category);
+        Assert.Equal(RetryPolicy.Unknown, diagnostic.RetryPolicy);
+        Assert.DoesNotContain("network", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -233,6 +298,11 @@ public sealed class GitFailureClassifierTests : IDisposable
 
     private RepoResult CreateResult(bool failed, params string[] logLines)
     {
+        return CreateResult(failed, logLines.Select(logLine => CreateLogItem(logLine, isError: failed, isWarning: !failed)).ToArray());
+    }
+
+    private RepoResult CreateResult(bool failed, params LogItem[] logItems)
+    {
         var result = new RepoResult
         {
             Path = Path.Combine(tempRoot, "RepoA"),
@@ -240,16 +310,21 @@ public sealed class GitFailureClassifierTests : IDisposable
             Failed = failed
         };
 
-        foreach (var logLine in logLines)
+        foreach (var logItem in logItems)
         {
-            result.Logs.Add(new LogItem
-            {
-                Text = logLine,
-                IsError = failed,
-                IsWarning = !failed
-            });
+            result.Logs.Add(logItem);
         }
 
         return result;
+    }
+
+    private static LogItem CreateLogItem(string text, bool isError = false, bool isWarning = false)
+    {
+        return new LogItem
+        {
+            Text = text,
+            IsError = isError,
+            IsWarning = isWarning
+        };
     }
 }
