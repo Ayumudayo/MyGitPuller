@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -447,12 +448,15 @@ namespace GitPuller
                 var valid = new List<string>();
                 foreach (var path in cached)
                 {
-                    if (!IsGitRepoRoot(path, out var isSubmodule) || isSubmodule)
+                    if (!TryNormalizeRepoPath(path, out var normalizedPath)
+                        || !IsPathUnderRoot(rootDir, normalizedPath)
+                        || !IsGitRepoRoot(normalizedPath, out var isSubmodule)
+                        || isSubmodule)
                     {
                         return false;
                     }
 
-                    valid.Add(path);
+                    valid.Add(normalizedPath);
                 }
 
                 repos = NormalizeRepoList(valid);
@@ -486,10 +490,101 @@ namespace GitPuller
                     repoPath,
                     Path.GetFileName(repoPath),
                     GetRepositoryCategory(normalizedRoot, repoPath),
-                    null))
+                    TryGetOriginRemoteUrl(repoPath)))
                 .ToList();
 
             return new RepositoryInventory(normalizedRoot, repositories);
+        }
+
+        private static bool TryNormalizeRepoPath(string repoPath, out string normalizedPath)
+        {
+            normalizedPath = string.Empty;
+            if (string.IsNullOrWhiteSpace(repoPath))
+            {
+                return false;
+            }
+
+            try
+            {
+                normalizedPath = Path.GetFullPath(repoPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsPathUnderRoot(string root, string path)
+        {
+            var relativePath = Path.GetRelativePath(root, path);
+            return relativePath == "."
+                || (!Path.IsPathRooted(relativePath)
+                    && !relativePath.Equals("..", StringComparison.Ordinal)
+                    && !relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                    && !relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
+        }
+
+        private static string? TryGetOriginRemoteUrl(string repoPath)
+        {
+            try
+            {
+                var processStartInfo = new ProcessStartInfo
+                {
+                    FileName = "git",
+                    WorkingDirectory = repoPath,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                };
+
+                processStartInfo.ArgumentList.Add("remote");
+                processStartInfo.ArgumentList.Add("get-url");
+                processStartInfo.ArgumentList.Add("origin");
+                processStartInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
+                processStartInfo.Environment["GCM_INTERACTIVE"] = "never";
+
+                using var process = Process.Start(processStartInfo);
+                if (process == null)
+                {
+                    return null;
+                }
+
+                var stdout = process.StandardOutput.ReadToEndAsync();
+                var stderr = process.StandardError.ReadToEndAsync();
+                if (!process.WaitForExit(10000))
+                {
+                    try
+                    {
+                        if (!process.HasExited)
+                        {
+                            process.Kill(entireProcessTree: true);
+                        }
+                    }
+                    catch
+                    {
+                    }
+
+                    return null;
+                }
+
+                Task.WaitAll(stdout, stderr);
+                if (process.ExitCode != 0)
+                {
+                    return null;
+                }
+
+                var remoteUrl = stdout.Result.Trim();
+                return string.IsNullOrWhiteSpace(remoteUrl) ? null : remoteUrl;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static List<string> NormalizeRepoList(IEnumerable<string> repoPaths)

@@ -33,7 +33,7 @@ public sealed class GitPullerRunner
                 ?? GitRepositorySupport.CreateRepositoryDescriptor(request.Inventory.LibraryRoot, repoPath, remoteUrl: null);
 
             progress?.Report(GitPullerProgressEvent.RepositoryStarted(repository, 1, 0));
-            var result = ProcessRepository(repository, request.Options, cancellationToken);
+            var result = RunRepository(repository, request.Options, cancellationToken);
             progress?.Report(GitPullerProgressEvent.RepositoryCompleted(repository, result, 1, 1));
             return result;
         }, cancellationToken);
@@ -64,16 +64,7 @@ public sealed class GitPullerRunner
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report(GitPullerProgressEvent.RepositoryStarted(repository, repositories.Count, Volatile.Read(ref completedRepositories)));
 
-            var repositoryStartedAt = DateTimeOffset.Now;
-            var repositoryStopwatch = Stopwatch.StartNew();
-            var result = ProcessRepository(repository, request.Options, cancellationToken);
-            repositoryStopwatch.Stop();
-
-            result.WorkerSlot = GetWorkerSlot();
-            result.StartedAt = repositoryStartedAt;
-            result.CompletedAt = DateTimeOffset.Now;
-            result.Elapsed = repositoryStopwatch.Elapsed;
-
+            var result = RunRepository(repository, request.Options, cancellationToken);
             results.Add(result);
             var completed = Interlocked.Increment(ref completedRepositories);
             progress?.Report(GitPullerProgressEvent.RepositoryCompleted(repository, result, repositories.Count, completed));
@@ -96,6 +87,20 @@ public sealed class GitPullerRunner
     {
         var threadId = Environment.CurrentManagedThreadId;
         return workerSlotsByThreadId.GetOrAdd(threadId, _ => Interlocked.Increment(ref nextWorkerSlot));
+    }
+
+    private RepoResult RunRepository(RepositoryDescriptor repository, GitPullerOptions options, CancellationToken cancellationToken)
+    {
+        var repositoryStartedAt = DateTimeOffset.Now;
+        var repositoryStopwatch = Stopwatch.StartNew();
+        var result = ProcessRepository(repository, options, cancellationToken);
+        repositoryStopwatch.Stop();
+
+        result.WorkerSlot = GetWorkerSlot();
+        result.StartedAt = repositoryStartedAt;
+        result.CompletedAt = DateTimeOffset.Now;
+        result.Elapsed = repositoryStopwatch.Elapsed;
+        return result;
     }
 
     private static RepoResult ProcessRepository(RepositoryDescriptor repository, GitPullerOptions options, CancellationToken cancellationToken)
