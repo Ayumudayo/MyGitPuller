@@ -4,7 +4,8 @@ public sealed record CategoryNavigationItemViewModel(
     string Name,
     string FullPath,
     int RepositoryCount,
-    int AttentionCount)
+    int AttentionCount,
+    bool IsAllRepositories = false)
 {
     public string DisplayName => RepositoryCount == 1
         ? $"{Name} (1 repo)"

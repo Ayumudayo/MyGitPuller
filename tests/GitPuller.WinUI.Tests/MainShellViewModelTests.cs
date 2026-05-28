@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using GitPuller;
 using GitPuller_WinUI.ViewModels;
 
@@ -101,6 +102,75 @@ public sealed class MainShellViewModelTests
         Assert.False(occupiedOriginalPath.CanRestore);
     }
 
+    [Fact]
+    public void CategoryNavigationItems_ProjectsAllRepositoriesAndCategoriesFromSharedCollection()
+    {
+        var viewModel = CreateViewModel(
+            Result("failed", RepositoryResultStatus.Failed),
+            Result("updated", RepositoryResultStatus.Updated),
+            Result("testing", RepositoryResultStatus.Updated, category: "Testing"));
+        var addedCategory = new CategoryNavigationItemViewModel("Testing", @"E:\FF14\Repos\MyRepos\Testing", 0, 0);
+
+        viewModel.Categories.Add(addedCategory);
+
+        Assert.True(viewModel.CategoryNavigationItems[0].IsAllRepositories);
+        Assert.Equal("All repositories", viewModel.CategoryNavigationItems[0].Name);
+        Assert.Same(addedCategory, viewModel.CategoryNavigationItems.Single(item => item.Name == "Testing"));
+
+        viewModel.SelectedNavigationItem = addedCategory;
+
+        Assert.Same(addedCategory, viewModel.SelectedCategory);
+        Assert.Equal(["testing"], viewModel.VisibleResults.Select(result => result.Name).ToArray());
+
+        viewModel.SelectedNavigationItem = viewModel.CategoryNavigationItems[0];
+
+        Assert.Null(viewModel.SelectedCategory);
+        Assert.Equal(3, viewModel.VisibleResults.Count);
+    }
+
+    [Fact]
+    public void RepositoryResultCollectionMutation_RaisesDerivedPropertiesAndRefreshesVisibleResults()
+    {
+        var viewModel = CreateViewModel(Result("updated", RepositoryResultStatus.Updated));
+        var changedProperties = new List<string>();
+        viewModel.PropertyChanged += TrackChangedProperty(changedProperties);
+
+        viewModel.RepositoryResults.Add(Result("failed", RepositoryResultStatus.Failed));
+
+        Assert.Equal(1, viewModel.FailedCount);
+        Assert.Equal("2 of 2 repositories shown", viewModel.ResultSummary);
+        Assert.Equal(
+            [RepositoryResultStatus.Failed, RepositoryResultStatus.Updated],
+            viewModel.VisibleResults.Select(result => result.Status).ToArray());
+        Assert.Contains(nameof(MainShellViewModel.VisibleResults), changedProperties);
+        Assert.Contains(nameof(MainShellViewModel.FailedCount), changedProperties);
+        Assert.Contains(nameof(MainShellViewModel.ResultSummary), changedProperties);
+        Assert.Contains(nameof(MainShellViewModel.CategoryNavigationItems), changedProperties);
+    }
+
+    [Fact]
+    public void RemovedRepositoryCollectionMutation_RaisesDerivedCount()
+    {
+        var viewModel = CreateViewModel();
+        var changedProperties = new List<string>();
+        viewModel.PropertyChanged += TrackChangedProperty(changedProperties);
+
+        viewModel.RemovedRepositories.Add(RemovedRepositoryViewModel.FromRecord(
+            new RemovedRepositoryRecord
+            {
+                Name = "Removed",
+                Category = "Plugins",
+                RemovedPath = @"E:\Library\.mygitpuller\removed\Plugins\Removed",
+                OriginalPath = @"E:\Library\Plugins\Removed",
+                RemovedAt = DateTimeOffset.UtcNow
+            },
+            _ => true,
+            _ => false));
+
+        Assert.Equal(1, viewModel.RemovedRepositoryCount);
+        Assert.Contains(nameof(MainShellViewModel.RemovedRepositoryCount), changedProperties);
+    }
+
     private static MainShellViewModel CreateViewModel(params RepositoryResultViewModel[] results)
     {
         return new MainShellViewModel(
@@ -116,12 +186,13 @@ public sealed class MainShellViewModelTests
     private static RepositoryResultViewModel Result(
         string name,
         RepositoryResultStatus status,
-        FailureDiagnostic? diagnostic = null)
+        FailureDiagnostic? diagnostic = null,
+        string category = "Plugins")
     {
         return new RepositoryResultViewModel(
             name,
-            "Plugins",
-            @$"E:\FF14\Repos\MyRepos\Plugins\{name}",
+            category,
+            @$"E:\FF14\Repos\MyRepos\{category}\{name}",
             $"https://github.com/example/{name}.git",
             status,
             newCommitsCount: status == RepositoryResultStatus.Updated ? 3 : 0,
@@ -142,5 +213,16 @@ public sealed class MainShellViewModelTests
             "Diagnostic evidence",
             RelatedPath: null,
             RelatedCommand: "git fetch --all --prune");
+    }
+
+    private static PropertyChangedEventHandler TrackChangedProperty(List<string> changedProperties)
+    {
+        return (_, args) =>
+        {
+            if (!string.IsNullOrWhiteSpace(args.PropertyName))
+            {
+                changedProperties.Add(args.PropertyName);
+            }
+        };
     }
 }

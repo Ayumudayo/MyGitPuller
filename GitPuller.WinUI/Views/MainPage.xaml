@@ -9,314 +9,425 @@
     RequestedTheme="Dark"
     mc:Ignorable="d">
 
-    <NavigationView
-        x:Name="CategoryNavigation"
-        IsBackButtonVisible="Collapsed"
-        IsPaneOpen="True"
-        IsSettingsVisible="False"
-        Loaded="CategoryNavigation_Loaded"
-        PaneDisplayMode="Left"
-        PaneTitle="Library"
-        SelectionChanged="CategoryNavigation_SelectionChanged">
-        <NavigationView.PaneHeader>
-            <StackPanel Padding="{StaticResource GitPullerCompactPadding}" Spacing="4">
-                <TextBlock
-                    Style="{StaticResource CaptionTextBlockStyle}"
-                    Text="Library root" />
-                <TextBlock
-                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                    Text="{x:Bind ViewModel.LibraryRoot, Mode=OneWay}" />
-            </StackPanel>
-        </NavigationView.PaneHeader>
+    <Grid>
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="LayoutStates">
+                <VisualState x:Name="WideState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="1100" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="CategoryNavigation.PaneDisplayMode" Value="Left" />
+                        <Setter Target="CategoryNavigation.IsPaneOpen" Value="True" />
+                        <Setter Target="ContentHost.Padding" Value="{StaticResource GitPullerPagePadding}" />
+                        <Setter Target="ResultsColumn.Width" Value="2*" />
+                        <Setter Target="DetailsColumn.Width" Value="*" />
+                        <Setter Target="DetailsRow.Height" Value="0" />
+                        <Setter Target="DetailsPane.(Grid.Row)" Value="0" />
+                        <Setter Target="DetailsPane.(Grid.Column)" Value="1" />
+                        <Setter Target="DetailsPane.Margin" Value="16,0,0,0" />
+                        <Setter Target="AddCategoryColumn.Width" Value="220" />
+                        <Setter Target="AddUrlColumn.Width" Value="*" />
+                        <Setter Target="AddButtonColumn.Width" Value="Auto" />
+                        <Setter Target="AddUrlRow.Height" Value="0" />
+                        <Setter Target="AddButtonRow.Height" Value="0" />
+                        <Setter Target="AddCategoryBox.(Grid.Row)" Value="0" />
+                        <Setter Target="AddCategoryBox.(Grid.Column)" Value="0" />
+                        <Setter Target="RepositoryUrlBox.(Grid.Row)" Value="0" />
+                        <Setter Target="RepositoryUrlBox.(Grid.Column)" Value="1" />
+                        <Setter Target="AddRepositoryButton.(Grid.Row)" Value="0" />
+                        <Setter Target="AddRepositoryButton.(Grid.Column)" Value="2" />
+                        <Setter Target="AddRepositoryButton.Margin" Value="0,28,0,0" />
+                    </VisualState.Setters>
+                </VisualState>
 
-        <NavigationView.MenuItems>
-            <NavigationViewItem
-                x:Name="AllRepositoriesItem"
-                Content="All repositories"
-                Tag="__all">
-                <NavigationViewItem.Icon>
-                    <SymbolIcon Symbol="Home" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Dalamud plugins" Tag="Dalamud plugins">
-                <NavigationViewItem.Icon>
-                    <SymbolIcon Symbol="Folder" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Tooling" Tag="Tooling">
-                <NavigationViewItem.Icon>
-                    <SymbolIcon Symbol="Folder" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Archived experiments" Tag="Archived experiments">
-                <NavigationViewItem.Icon>
-                    <SymbolIcon Symbol="Folder" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-        </NavigationView.MenuItems>
+                <VisualState x:Name="MediumState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="720" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="CategoryNavigation.PaneDisplayMode" Value="LeftCompact" />
+                        <Setter Target="CategoryNavigation.IsPaneOpen" Value="False" />
+                        <Setter Target="ContentHost.Padding" Value="{StaticResource GitPullerPagePadding}" />
+                        <Setter Target="ResultsColumn.Width" Value="*" />
+                        <Setter Target="DetailsColumn.Width" Value="0" />
+                        <Setter Target="DetailsRow.Height" Value="Auto" />
+                        <Setter Target="DetailsPane.(Grid.Row)" Value="1" />
+                        <Setter Target="DetailsPane.(Grid.Column)" Value="0" />
+                        <Setter Target="DetailsPane.Margin" Value="0,16,0,0" />
+                        <Setter Target="AddCategoryColumn.Width" Value="220" />
+                        <Setter Target="AddUrlColumn.Width" Value="*" />
+                        <Setter Target="AddButtonColumn.Width" Value="Auto" />
+                        <Setter Target="AddUrlRow.Height" Value="0" />
+                        <Setter Target="AddButtonRow.Height" Value="0" />
+                        <Setter Target="AddCategoryBox.(Grid.Row)" Value="0" />
+                        <Setter Target="AddCategoryBox.(Grid.Column)" Value="0" />
+                        <Setter Target="RepositoryUrlBox.(Grid.Row)" Value="0" />
+                        <Setter Target="RepositoryUrlBox.(Grid.Column)" Value="1" />
+                        <Setter Target="AddRepositoryButton.(Grid.Row)" Value="0" />
+                        <Setter Target="AddRepositoryButton.(Grid.Column)" Value="2" />
+                        <Setter Target="AddRepositoryButton.Margin" Value="0,28,0,0" />
+                    </VisualState.Setters>
+                </VisualState>
 
-        <NavigationView.Content>
-            <Grid Padding="{StaticResource GitPullerPagePadding}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="2*" MinWidth="480" />
-                    <ColumnDefinition Width="*" MinWidth="360" />
-                </Grid.ColumnDefinitions>
+                <VisualState x:Name="NarrowState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="CategoryNavigation.PaneDisplayMode" Value="LeftMinimal" />
+                        <Setter Target="CategoryNavigation.IsPaneOpen" Value="False" />
+                        <Setter Target="ContentHost.Padding" Value="{StaticResource GitPullerCompactPadding}" />
+                        <Setter Target="ResultsColumn.Width" Value="*" />
+                        <Setter Target="DetailsColumn.Width" Value="0" />
+                        <Setter Target="DetailsRow.Height" Value="Auto" />
+                        <Setter Target="DetailsPane.(Grid.Row)" Value="1" />
+                        <Setter Target="DetailsPane.(Grid.Column)" Value="0" />
+                        <Setter Target="DetailsPane.Margin" Value="0,12,0,0" />
+                        <Setter Target="AddCategoryColumn.Width" Value="*" />
+                        <Setter Target="AddUrlColumn.Width" Value="0" />
+                        <Setter Target="AddButtonColumn.Width" Value="0" />
+                        <Setter Target="AddUrlRow.Height" Value="Auto" />
+                        <Setter Target="AddButtonRow.Height" Value="Auto" />
+                        <Setter Target="AddCategoryBox.(Grid.Row)" Value="0" />
+                        <Setter Target="AddCategoryBox.(Grid.Column)" Value="0" />
+                        <Setter Target="RepositoryUrlBox.(Grid.Row)" Value="1" />
+                        <Setter Target="RepositoryUrlBox.(Grid.Column)" Value="0" />
+                        <Setter Target="AddRepositoryButton.(Grid.Row)" Value="2" />
+                        <Setter Target="AddRepositoryButton.(Grid.Column)" Value="0" />
+                        <Setter Target="AddRepositoryButton.Margin" Value="0" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
 
-                <Grid
-                    Grid.Column="0"
-                    MinWidth="0"
-                    RowSpacing="{StaticResource GitPullerRowSpacing}">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
+        <NavigationView
+            x:Name="CategoryNavigation"
+            IsBackButtonVisible="Collapsed"
+            IsSettingsVisible="False"
+            MenuItemsSource="{x:Bind ViewModel.CategoryNavigationItems, Mode=OneWay}"
+            OpenPaneLength="280"
+            PaneTitle="Library"
+            SelectedItem="{x:Bind ViewModel.SelectedNavigationItem, Mode=TwoWay}">
+            <NavigationView.PaneHeader>
+                <StackPanel Padding="{StaticResource GitPullerCompactPadding}" Spacing="4">
+                    <TextBlock
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Library root" />
+                    <TextBlock
+                        Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                        Text="{x:Bind ViewModel.LibraryRoot, Mode=OneWay}" />
+                </StackPanel>
+            </NavigationView.PaneHeader>
 
-                    <CommandBar
-                        Grid.Row="0"
-                        DefaultLabelPosition="Right"
-                        IsOpen="False">
-                        <AppBarButton
-                            Command="{x:Bind ViewModel.RefreshCommand}"
-                            Label="Run all">
-                            <AppBarButton.Icon>
-                                <SymbolIcon Symbol="Refresh" />
-                            </AppBarButton.Icon>
-                        </AppBarButton>
-                        <AppBarButton
-                            Command="{x:Bind ViewModel.RetrySelectedCommand}"
-                            Label="Retry selected">
-                            <AppBarButton.Icon>
-                                <SymbolIcon Symbol="Refresh" />
-                            </AppBarButton.Icon>
-                        </AppBarButton>
-                        <AppBarButton
-                            Command="{x:Bind ViewModel.AddRepositoryCommand}"
-                            Label="Add URL">
-                            <AppBarButton.Icon>
-                                <SymbolIcon Symbol="Add" />
-                            </AppBarButton.Icon>
-                        </AppBarButton>
-                    </CommandBar>
-
-                    <Grid
-                        Grid.Row="1"
-                        ColumnSpacing="{StaticResource GitPullerColumnSpacing}"
-                        RowSpacing="{StaticResource GitPullerRowSpacing}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="220" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-
-                        <ComboBox
-                            Grid.Column="0"
-                            DisplayMemberPath="Name"
-                            Header="Add target category"
-                            ItemsSource="{x:Bind ViewModel.Categories, Mode=OneWay}"
-                            PlaceholderText="Choose category"
-                            SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}" />
-
-                        <TextBox
-                            Grid.Column="1"
-                            Header="Repository URL"
-                            PlaceholderText="https://github.com/owner/repository.git"
-                            Text="{x:Bind ViewModel.RepositoryUrlToAdd, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                            TextWrapping="Wrap" />
-
-                        <Button
-                            Grid.Column="2"
-                            Margin="0,28,0,0"
-                            Command="{x:Bind ViewModel.AddRepositoryCommand}"
-                            Content="Add" />
-                    </Grid>
-
-                    <StackPanel Grid.Row="2" Spacing="8">
-                        <InfoBar
-                            IsOpen="{x:Bind ViewModel.HasAttentionItems, Mode=OneWay}"
-                            Message="{x:Bind ViewModel.AttentionSummary, Mode=OneWay}"
-                            Severity="Warning"
-                            Title="Run review required" />
+            <NavigationView.MenuItemTemplate>
+                <DataTemplate x:DataType="vm:CategoryNavigationItemViewModel">
+                    <StackPanel
+                        Padding="0,4"
+                        Spacing="2"
+                        ToolTipService.ToolTip="{x:Bind AttentionText}">
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                            Text="{x:Bind DisplayName}" />
                         <TextBlock
                             Style="{StaticResource CaptionTextBlockStyle}"
-                            Text="{x:Bind ViewModel.ResultSummary, Mode=OneWay}" />
-                        <ToggleSwitch
-                            AutomationProperties.Name="Clean repositories"
-                            Header="Clean repositories"
-                            IsOn="{x:Bind ViewModel.ShowCleanRepositories, Mode=TwoWay}"
-                            OffContent="Hidden"
-                            OnContent="Shown" />
-                        <ProgressBar
-                            Maximum="100"
-                            Value="{x:Bind ViewModel.RunProgress, Mode=OneWay}" />
+                            Text="{x:Bind AttentionText}"
+                            TextWrapping="WrapWholeWords" />
                     </StackPanel>
+                </DataTemplate>
+            </NavigationView.MenuItemTemplate>
 
-                    <ListView
-                        Grid.Row="3"
-                        IsItemClickEnabled="False"
-                        ItemContainerStyle="{StaticResource GitPullerRepositoryListViewItemStyle}"
-                        ItemsSource="{x:Bind ViewModel.VisibleResults, Mode=OneWay}"
-                        SelectedItem="{x:Bind ViewModel.SelectedResult, Mode=TwoWay}"
-                        SelectionMode="Single">
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="vm:RepositoryResultViewModel">
-                                <Grid
-                                    MinWidth="0"
-                                    Padding="{StaticResource GitPullerTightPadding}"
-                                    ColumnSpacing="12"
-                                    RowSpacing="4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="120" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
+            <NavigationView.Content>
+                <Grid
+                    x:Name="ContentHost"
+                    Padding="{StaticResource GitPullerPagePadding}">
+                    <Grid
+                        x:Name="ContentColumns"
+                        ColumnSpacing="{StaticResource GitPullerColumnSpacing}"
+                        RowSpacing="{StaticResource GitPullerColumnSpacing}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition x:Name="DetailsRow" Height="0" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition x:Name="ResultsColumn" Width="2*" />
+                            <ColumnDefinition x:Name="DetailsColumn" Width="*" />
+                        </Grid.ColumnDefinitions>
 
-                                    <TextBlock
-                                        Grid.Row="0"
-                                        Grid.Column="0"
-                                        FontWeight="SemiBold"
-                                        Text="{x:Bind StatusText}" />
-                                    <TextBlock
-                                        Grid.Row="0"
-                                        Grid.Column="1"
-                                        FontWeight="SemiBold"
-                                        Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                        Text="{x:Bind Name}" />
-                                    <Button
-                                        Grid.Row="0"
-                                        Grid.Column="2"
-                                        Content="{x:Bind RetryButtonText}"
-                                        IsEnabled="{x:Bind CanRetry}" />
+                        <Grid
+                            x:Name="ResultsPane"
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            MinWidth="0"
+                            RowSpacing="{StaticResource GitPullerRowSpacing}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
 
-                                    <TextBlock
-                                        Grid.Row="1"
-                                        Grid.Column="1"
-                                        Grid.ColumnSpan="2"
-                                        Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                        Text="{x:Bind Summary}" />
-                                    <TextBlock
-                                        Grid.Row="2"
-                                        Grid.Column="1"
-                                        Grid.ColumnSpan="2"
-                                        Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                        Text="{x:Bind Path}" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-                </Grid>
+                            <CommandBar
+                                Grid.Row="0"
+                                DefaultLabelPosition="Right"
+                                IsOpen="False">
+                                <AppBarButton
+                                    Command="{x:Bind ViewModel.RefreshCommand}"
+                                    Label="Run all">
+                                    <AppBarButton.Icon>
+                                        <SymbolIcon Symbol="Refresh" />
+                                    </AppBarButton.Icon>
+                                </AppBarButton>
+                                <AppBarButton
+                                    Command="{x:Bind ViewModel.RetrySelectedCommand}"
+                                    Label="Retry selected">
+                                    <AppBarButton.Icon>
+                                        <SymbolIcon Symbol="Refresh" />
+                                    </AppBarButton.Icon>
+                                </AppBarButton>
+                                <AppBarButton
+                                    Command="{x:Bind ViewModel.AddRepositoryCommand}"
+                                    Label="Add URL">
+                                    <AppBarButton.Icon>
+                                        <SymbolIcon Symbol="Add" />
+                                    </AppBarButton.Icon>
+                                </AppBarButton>
+                            </CommandBar>
 
-                <Border
-                    Grid.Column="1"
-                    Margin="16,0,0,0"
-                    Padding="{StaticResource GitPullerCompactPadding}"
-                    Background="{ThemeResource GitPullerSubtlePanelBrush}"
-                    BorderBrush="{ThemeResource GitPullerSubtleBorderBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8">
-                    <ScrollViewer
-                        HorizontalScrollBarVisibility="Disabled"
-                        VerticalScrollBarVisibility="Auto">
-                        <StackPanel Spacing="12">
-                            <TextBlock
-                                Style="{StaticResource TitleTextBlockStyle}"
-                                Text="{x:Bind ViewModel.SelectedResultName, Mode=OneWay}"
-                                TextWrapping="WrapWholeWords" />
+                            <Grid
+                                x:Name="AddRepositoryGrid"
+                                Grid.Row="1"
+                                ColumnSpacing="{StaticResource GitPullerColumnSpacing}"
+                                RowSpacing="{StaticResource GitPullerRowSpacing}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition x:Name="AddUrlRow" Height="0" />
+                                    <RowDefinition x:Name="AddButtonRow" Height="0" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition x:Name="AddCategoryColumn" Width="220" />
+                                    <ColumnDefinition x:Name="AddUrlColumn" Width="*" />
+                                    <ColumnDefinition x:Name="AddButtonColumn" Width="Auto" />
+                                </Grid.ColumnDefinitions>
 
-                            <InfoBar
-                                IsOpen="{x:Bind ViewModel.HasSelectedResult, Mode=OneWay}"
-                                Message="{x:Bind ViewModel.SelectedResultSummary, Mode=OneWay}"
-                                Severity="Informational"
-                                Title="{x:Bind ViewModel.SelectedResultStatus, Mode=OneWay}" />
+                                <ComboBox
+                                    x:Name="AddCategoryBox"
+                                    Grid.Row="0"
+                                    Grid.Column="0"
+                                    DisplayMemberPath="Name"
+                                    Header="Add target category"
+                                    ItemsSource="{x:Bind ViewModel.Categories, Mode=OneWay}"
+                                    PlaceholderText="Choose category"
+                                    SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}" />
 
-                            <StackPanel Spacing="4">
-                                <TextBlock FontWeight="SemiBold" Text="Category" />
+                                <TextBox
+                                    x:Name="RepositoryUrlBox"
+                                    Grid.Row="0"
+                                    Grid.Column="1"
+                                    Header="Repository URL"
+                                    PlaceholderText="https://github.com/owner/repository.git"
+                                    Text="{x:Bind ViewModel.RepositoryUrlToAdd, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                    TextWrapping="Wrap" />
+
+                                <Button
+                                    x:Name="AddRepositoryButton"
+                                    Grid.Row="0"
+                                    Grid.Column="2"
+                                    Margin="0,28,0,0"
+                                    Command="{x:Bind ViewModel.AddRepositoryCommand}"
+                                    Content="Add" />
+                            </Grid>
+
+                            <StackPanel Grid.Row="2" Spacing="8">
+                                <InfoBar
+                                    IsOpen="{x:Bind ViewModel.HasAttentionItems, Mode=OneWay}"
+                                    Message="{x:Bind ViewModel.AttentionSummary, Mode=OneWay}"
+                                    Severity="Warning"
+                                    Title="Run review required" />
                                 <TextBlock
-                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                    Text="{x:Bind ViewModel.SelectedResultCategory, Mode=OneWay}" />
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Text="{x:Bind ViewModel.ResultSummary, Mode=OneWay}" />
+                                <ToggleSwitch
+                                    AutomationProperties.Name="Clean repositories"
+                                    Header="Clean repositories"
+                                    IsOn="{x:Bind ViewModel.ShowCleanRepositories, Mode=TwoWay}"
+                                    OffContent="Hidden"
+                                    OnContent="Shown" />
+                                <ProgressBar
+                                    Maximum="100"
+                                    Value="{x:Bind ViewModel.RunProgress, Mode=OneWay}" />
                             </StackPanel>
 
-                            <StackPanel Spacing="4">
-                                <TextBlock FontWeight="SemiBold" Text="Remote URL" />
-                                <TextBlock
-                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                    Text="{x:Bind ViewModel.SelectedResultRemoteUrl, Mode=OneWay}" />
-                            </StackPanel>
+                            <ListView
+                                Grid.Row="3"
+                                IsItemClickEnabled="False"
+                                ItemContainerStyle="{StaticResource GitPullerRepositoryListViewItemStyle}"
+                                ItemsSource="{x:Bind ViewModel.VisibleResults, Mode=OneWay}"
+                                SelectedItem="{x:Bind ViewModel.SelectedResult, Mode=TwoWay}"
+                                SelectionMode="Single">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:RepositoryResultViewModel">
+                                        <Grid
+                                            MinWidth="0"
+                                            Padding="{StaticResource GitPullerTightPadding}"
+                                            ColumnSpacing="12"
+                                            RowSpacing="4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="120" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
 
-                            <StackPanel Spacing="4">
-                                <TextBlock FontWeight="SemiBold" Text="Local path" />
-                                <TextBlock
-                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                    Text="{x:Bind ViewModel.SelectedResultPath, Mode=OneWay}" />
-                            </StackPanel>
-
-                            <StackPanel Spacing="4">
-                                <TextBlock FontWeight="SemiBold" Text="Diagnostic" />
-                                <TextBlock
-                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                    Text="{x:Bind ViewModel.SelectedResultDiagnosticExplanation, Mode=OneWay}" />
-                                <TextBlock
-                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                    Text="{x:Bind ViewModel.SelectedResultSuggestedAction, Mode=OneWay}" />
-                            </StackPanel>
-
-                            <Expander Header="Evidence" IsExpanded="True">
-                                <TextBlock
-                                    Padding="{StaticResource GitPullerTightPadding}"
-                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                    Text="{x:Bind ViewModel.SelectedResultEvidence, Mode=OneWay}" />
-                            </Expander>
-
-                            <Expander Header="Related command">
-                                <TextBlock
-                                    Padding="{StaticResource GitPullerTightPadding}"
-                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                    Text="{x:Bind ViewModel.SelectedResultRelatedCommand, Mode=OneWay}" />
-                            </Expander>
-
-                            <Expander Header="Logs">
-                                <ItemsControl ItemsSource="{x:Bind ViewModel.SelectedResultLogLines, Mode=OneWay}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
                                             <TextBlock
-                                                Margin="0,0,0,8"
+                                                Grid.Row="0"
+                                                Grid.Column="0"
+                                                FontWeight="SemiBold"
+                                                Text="{x:Bind StatusText}" />
+                                            <TextBlock
+                                                Grid.Row="0"
+                                                Grid.Column="1"
+                                                FontWeight="SemiBold"
                                                 Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                Text="{Binding}" />
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </Expander>
+                                                Text="{x:Bind Name}" />
+                                            <Button
+                                                Grid.Row="0"
+                                                Grid.Column="2"
+                                                Content="{x:Bind RetryButtonText}"
+                                                IsEnabled="{x:Bind CanRetry}" />
 
-                            <Expander Header="Removed repositories">
-                                <ListView ItemsSource="{x:Bind ViewModel.RemovedRepositories, Mode=OneWay}">
-                                    <ListView.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:RemovedRepositoryViewModel">
-                                            <StackPanel Padding="{StaticResource GitPullerTightPadding}" Spacing="4">
-                                                <TextBlock
-                                                    FontWeight="SemiBold"
-                                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                    Text="{x:Bind Name}" />
-                                                <TextBlock
-                                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                    Text="{x:Bind OriginalPath}" />
-                                                <Button
-                                                    Content="{x:Bind RestoreStateText}"
-                                                    IsEnabled="{x:Bind CanRestore}" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ListView.ItemTemplate>
-                                </ListView>
-                            </Expander>
-                        </StackPanel>
-                    </ScrollViewer>
-                </Border>
-            </Grid>
-        </NavigationView.Content>
-    </NavigationView>
+                                            <TextBlock
+                                                Grid.Row="1"
+                                                Grid.Column="1"
+                                                Grid.ColumnSpan="2"
+                                                Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                                Text="{x:Bind Summary}" />
+                                            <TextBlock
+                                                Grid.Row="2"
+                                                Grid.Column="1"
+                                                Grid.ColumnSpan="2"
+                                                Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                                Text="{x:Bind Path}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </Grid>
+
+                        <Border
+                            x:Name="DetailsPane"
+                            Grid.Row="0"
+                            Grid.Column="1"
+                            Margin="16,0,0,0"
+                            Padding="{StaticResource GitPullerCompactPadding}"
+                            Background="{ThemeResource GitPullerSubtlePanelBrush}"
+                            BorderBrush="{ThemeResource GitPullerSubtleBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <ScrollViewer
+                                HorizontalScrollBarVisibility="Disabled"
+                                VerticalScrollBarVisibility="Auto">
+                                <StackPanel Spacing="12">
+                                    <TextBlock
+                                        Style="{StaticResource TitleTextBlockStyle}"
+                                        Text="{x:Bind ViewModel.SelectedResultName, Mode=OneWay}"
+                                        TextWrapping="WrapWholeWords" />
+
+                                    <InfoBar
+                                        IsOpen="{x:Bind ViewModel.HasSelectedResult, Mode=OneWay}"
+                                        Message="{x:Bind ViewModel.SelectedResultSummary, Mode=OneWay}"
+                                        Severity="Informational"
+                                        Title="{x:Bind ViewModel.SelectedResultStatus, Mode=OneWay}" />
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock FontWeight="SemiBold" Text="Category" />
+                                        <TextBlock
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{x:Bind ViewModel.SelectedResultCategory, Mode=OneWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock FontWeight="SemiBold" Text="Remote URL" />
+                                        <TextBlock
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{x:Bind ViewModel.SelectedResultRemoteUrl, Mode=OneWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock FontWeight="SemiBold" Text="Local path" />
+                                        <TextBlock
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{x:Bind ViewModel.SelectedResultPath, Mode=OneWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock FontWeight="SemiBold" Text="Diagnostic" />
+                                        <TextBlock
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{x:Bind ViewModel.SelectedResultDiagnosticExplanation, Mode=OneWay}" />
+                                        <TextBlock
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{x:Bind ViewModel.SelectedResultSuggestedAction, Mode=OneWay}" />
+                                    </StackPanel>
+
+                                    <Expander Header="Evidence" IsExpanded="True">
+                                        <TextBlock
+                                            Padding="{StaticResource GitPullerTightPadding}"
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{x:Bind ViewModel.SelectedResultEvidence, Mode=OneWay}" />
+                                    </Expander>
+
+                                    <Expander Header="Related command">
+                                        <TextBlock
+                                            Padding="{StaticResource GitPullerTightPadding}"
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{x:Bind ViewModel.SelectedResultRelatedCommand, Mode=OneWay}" />
+                                    </Expander>
+
+                                    <Expander Header="Logs">
+                                        <ItemsControl ItemsSource="{x:Bind ViewModel.SelectedResultLogLines, Mode=OneWay}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock
+                                                        Margin="0,0,0,8"
+                                                        Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                                        Text="{Binding}" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Expander>
+
+                                    <Expander Header="Removed repositories">
+                                        <ListView ItemsSource="{x:Bind ViewModel.RemovedRepositories, Mode=OneWay}">
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:RemovedRepositoryViewModel">
+                                                    <StackPanel Padding="{StaticResource GitPullerTightPadding}" Spacing="4">
+                                                        <TextBlock
+                                                            FontWeight="SemiBold"
+                                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                                            Text="{x:Bind Name}" />
+                                                        <TextBlock
+                                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                                            Text="{x:Bind OriginalPath}" />
+                                                        <Button
+                                                            Content="{x:Bind RestoreStateText}"
+                                                            IsEnabled="{x:Bind CanRestore}" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                    </Expander>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </NavigationView.Content>
+        </NavigationView>
+    </Grid>
 </Page>

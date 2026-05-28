@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Windows.Input;
 using GitPuller;
 
@@ -9,6 +10,8 @@ public sealed class MainShellViewModel : ObservableObject
     private bool showCleanRepositories;
     private RepositoryResultViewModel? selectedResult;
     private CategoryNavigationItemViewModel? selectedCategory;
+    private CategoryNavigationItemViewModel allRepositoriesNavigationItem;
+    private CategoryNavigationItemViewModel? selectedNavigationItem;
     private string repositoryUrlToAdd = string.Empty;
 
     public MainShellViewModel(
@@ -21,7 +24,13 @@ public sealed class MainShellViewModel : ObservableObject
         Categories = new ObservableCollection<CategoryNavigationItemViewModel>(categories);
         RepositoryResults = new ObservableCollection<RepositoryResultViewModel>(repositoryResults);
         RemovedRepositories = new ObservableCollection<RemovedRepositoryViewModel>(removedRepositories);
+        allRepositoriesNavigationItem = CreateAllRepositoriesNavigationItem();
+        selectedNavigationItem = allRepositoriesNavigationItem;
         selectedResult = VisibleResults.FirstOrDefault();
+
+        Categories.CollectionChanged += Categories_CollectionChanged;
+        RepositoryResults.CollectionChanged += RepositoryResults_CollectionChanged;
+        RemovedRepositories.CollectionChanged += RemovedRepositories_CollectionChanged;
 
         AddRepositoryCommand = new RelayCommand(
             execute: () => { },
@@ -39,6 +48,9 @@ public sealed class MainShellViewModel : ObservableObject
     public ICommand AddRepositoryCommand { get; }
     public ICommand RefreshCommand { get; }
     public ICommand RetrySelectedCommand { get; }
+    public CategoryNavigationItemViewModel AllRepositoriesNavigationItem => allRepositoriesNavigationItem;
+    public IReadOnlyList<CategoryNavigationItemViewModel> CategoryNavigationItems =>
+        [AllRepositoriesNavigationItem, .. Categories];
 
     public bool ShowCleanRepositories
     {
@@ -71,19 +83,13 @@ public sealed class MainShellViewModel : ObservableObject
     public CategoryNavigationItemViewModel? SelectedCategory
     {
         get => selectedCategory;
-        set
-        {
-            if (SetProperty(ref selectedCategory, value))
-            {
-                OnPropertyChanged(nameof(CanAddRepositoryFromUrl));
-                OnPropertyChanged(nameof(SelectedCategoryName));
-                OnPropertyChanged(nameof(VisibleResults));
-                OnPropertyChanged(nameof(VisibleResultCount));
-                OnPropertyChanged(nameof(ResultSummary));
-                RaiseCommandCanExecuteChanged();
-                EnsureSelectedResultIsVisible();
-            }
-        }
+        set => SetSelectedCategory(value, updateNavigation: true);
+    }
+
+    public CategoryNavigationItemViewModel? SelectedNavigationItem
+    {
+        get => selectedNavigationItem;
+        set => SetSelectedNavigationItem(value, updateCategory: true);
     }
 
     public string RepositoryUrlToAdd
@@ -96,6 +102,42 @@ public sealed class MainShellViewModel : ObservableObject
                 OnPropertyChanged(nameof(CanAddRepositoryFromUrl));
                 RaiseCommandCanExecuteChanged();
             }
+        }
+    }
+
+    private void SetSelectedCategory(CategoryNavigationItemViewModel? value, bool updateNavigation)
+    {
+        var normalizedValue = value is null
+            ? null
+            : Categories.FirstOrDefault(category =>
+                ReferenceEquals(category, value)
+                || string.Equals(category.Name, value.Name, StringComparison.OrdinalIgnoreCase));
+
+        if (SetProperty(ref selectedCategory, normalizedValue, nameof(SelectedCategory)))
+        {
+            RaiseCategorySelectionDerivedPropertiesChanged();
+
+            if (updateNavigation)
+            {
+                SetSelectedNavigationItem(normalizedValue ?? AllRepositoriesNavigationItem, updateCategory: false);
+            }
+        }
+    }
+
+    private void SetSelectedNavigationItem(CategoryNavigationItemViewModel? value, bool updateCategory)
+    {
+        var normalizedValue = value?.IsAllRepositories == true
+            ? AllRepositoriesNavigationItem
+            : value is null
+                ? AllRepositoriesNavigationItem
+                : Categories.FirstOrDefault(category =>
+                    ReferenceEquals(category, value)
+                    || string.Equals(category.Name, value.Name, StringComparison.OrdinalIgnoreCase))
+                    ?? AllRepositoriesNavigationItem;
+
+        if (SetProperty(ref selectedNavigationItem, normalizedValue, nameof(SelectedNavigationItem)) && updateCategory)
+        {
+            SetSelectedCategory(normalizedValue.IsAllRepositories ? null : normalizedValue, updateNavigation: false);
         }
     }
 
@@ -118,6 +160,7 @@ public sealed class MainShellViewModel : ObservableObject
     public int CleanCount => RepositoryResults.Count(result => result.Status == RepositoryResultStatus.Clean);
     public int VisibleResultCount => VisibleResults.Count;
     public int TotalResultCount => RepositoryResults.Count;
+    public int RemovedRepositoryCount => RemovedRepositories.Count;
     public double RunProgress => TotalResultCount == 0 ? 0 : 100;
     public bool HasAttentionItems => FailedCount > 0 || WarningCount > 0;
     public string AttentionSummary => $"{FailedCount} failed, {WarningCount} warning, {UpdatedCount} updated, {CleanCount} clean.";
@@ -261,6 +304,78 @@ public sealed class MainShellViewModel : ObservableObject
         }
 
         SelectedResult = VisibleResults.FirstOrDefault();
+    }
+
+    private void Categories_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(CategoryNavigationItems));
+
+        if (SelectedCategory is not null && !Categories.Contains(SelectedCategory))
+        {
+            SetSelectedCategory(null, updateNavigation: true);
+        }
+    }
+
+    private void RepositoryResults_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        RefreshAllRepositoriesNavigationItem();
+        RaiseResultDerivedPropertiesChanged();
+        EnsureSelectedResultIsVisible();
+    }
+
+    private void RemovedRepositories_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(RemovedRepositoryCount));
+    }
+
+    private CategoryNavigationItemViewModel CreateAllRepositoriesNavigationItem()
+    {
+        return new CategoryNavigationItemViewModel(
+            "All repositories",
+            LibraryRoot,
+            TotalResultCount,
+            FailedCount + WarningCount,
+            IsAllRepositories: true);
+    }
+
+    private void RefreshAllRepositoriesNavigationItem()
+    {
+        var wasAllSelected = selectedNavigationItem?.IsAllRepositories == true;
+        allRepositoriesNavigationItem = CreateAllRepositoriesNavigationItem();
+        OnPropertyChanged(nameof(AllRepositoriesNavigationItem));
+        OnPropertyChanged(nameof(CategoryNavigationItems));
+
+        if (wasAllSelected)
+        {
+            selectedNavigationItem = allRepositoriesNavigationItem;
+            OnPropertyChanged(nameof(SelectedNavigationItem));
+        }
+    }
+
+    private void RaiseCategorySelectionDerivedPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(CanAddRepositoryFromUrl));
+        OnPropertyChanged(nameof(SelectedCategoryName));
+        OnPropertyChanged(nameof(VisibleResults));
+        OnPropertyChanged(nameof(VisibleResultCount));
+        OnPropertyChanged(nameof(ResultSummary));
+        RaiseCommandCanExecuteChanged();
+        EnsureSelectedResultIsVisible();
+    }
+
+    private void RaiseResultDerivedPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(VisibleResults));
+        OnPropertyChanged(nameof(FailedCount));
+        OnPropertyChanged(nameof(WarningCount));
+        OnPropertyChanged(nameof(UpdatedCount));
+        OnPropertyChanged(nameof(CleanCount));
+        OnPropertyChanged(nameof(VisibleResultCount));
+        OnPropertyChanged(nameof(TotalResultCount));
+        OnPropertyChanged(nameof(RunProgress));
+        OnPropertyChanged(nameof(HasAttentionItems));
+        OnPropertyChanged(nameof(AttentionSummary));
+        OnPropertyChanged(nameof(ResultSummary));
     }
 
     private void RaiseSelectedResultPropertiesChanged()
