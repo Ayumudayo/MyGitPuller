@@ -484,17 +484,22 @@ public sealed class MainShellViewModelTests
         {
             ThrowOnSave = true
         };
-        var service = new CoreRepositoryManagementService(store);
+        var deleter = new RecordingRemovedRepositoryDirectoryDeleter();
+        var service = new CoreRepositoryManagementService(
+            store,
+            removedRepositoryDirectoryDeleter: deleter);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.PermanentlyDeleteRepositoryAsync(libraryRoot, removed, CancellationToken.None));
 
         Assert.True(Directory.Exists(removed.RemovedPath));
         Assert.Single(store.PersistedConfig.RemovedRepositories);
+        Assert.Equal(1, store.SaveCallCount);
+        Assert.Equal(0, deleter.DeleteCallCount);
     }
 
     [Fact]
-    public async Task CoreRepositoryManagementService_PermanentDeleteRestoresMetadata_WhenPhysicalDeleteFailsAfterSave()
+    public async Task CoreRepositoryManagementService_PermanentDeleteKeepsMetadata_WhenPhysicalDeleteFailsAfterPreflight()
     {
         var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
         var removed = RemovedRecord("DeletePhysicalFailure", libraryRoot);
@@ -517,6 +522,62 @@ public sealed class MainShellViewModelTests
         var persistedRemoved = Assert.Single(store.PersistedConfig.RemovedRepositories);
         Assert.Equal(removed.RemovedPath, persistedRemoved.RemovedPath);
         Assert.Equal(1, deleter.DeleteCallCount);
+        Assert.Equal(1, store.SaveCallCount);
+    }
+
+    [Fact]
+    public async Task CoreRepositoryManagementService_PermanentDeleteKeepsPersistedMetadata_WhenFinalSaveFailsAfterDelete()
+    {
+        var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        var removed = RemovedRecord("DeleteFinalSaveFailure", libraryRoot);
+        CreateRepositoryDirectory(removed.RemovedPath);
+        var store = new FailingRepositoryManagementConfigStore(new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins"],
+            RemovedRepositories = [removed]
+        })
+        {
+            ThrowOnSaveCall = 2
+        };
+        var deleter = new RecordingRemovedRepositoryDirectoryDeleter();
+        var service = new CoreRepositoryManagementService(
+            store,
+            removedRepositoryDirectoryDeleter: deleter);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.PermanentlyDeleteRepositoryAsync(libraryRoot, removed, CancellationToken.None));
+
+        Assert.False(Directory.Exists(removed.RemovedPath));
+        var persistedRemoved = Assert.Single(store.PersistedConfig.RemovedRepositories);
+        Assert.Equal(removed.RemovedPath, persistedRemoved.RemovedPath);
+        Assert.Equal(1, deleter.DeleteCallCount);
+        Assert.Equal(2, store.SaveCallCount);
+    }
+
+    [Fact]
+    public async Task CoreRepositoryManagementService_PermanentDeleteRemovesFolderAndMetadata_WhenDeleteAndFinalSaveSucceed()
+    {
+        var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        var removed = RemovedRecord("DeleteSuccess", libraryRoot);
+        CreateRepositoryDirectory(removed.RemovedPath);
+        var store = new FailingRepositoryManagementConfigStore(new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins"],
+            RemovedRepositories = [removed]
+        });
+        var deleter = new RecordingRemovedRepositoryDirectoryDeleter();
+        var service = new CoreRepositoryManagementService(
+            store,
+            removedRepositoryDirectoryDeleter: deleter);
+
+        await service.PermanentlyDeleteRepositoryAsync(libraryRoot, removed, CancellationToken.None);
+
+        Assert.False(Directory.Exists(removed.RemovedPath));
+        Assert.Empty(store.PersistedConfig.RemovedRepositories);
+        Assert.Equal(1, deleter.DeleteCallCount);
+        Assert.Equal(2, store.SaveCallCount);
     }
 
     [Fact]
@@ -1082,6 +1143,8 @@ public sealed class MainShellViewModelTests
 
         public LibraryConfig PersistedConfig { get; private set; }
         public bool ThrowOnSave { get; set; }
+        public int? ThrowOnSaveCall { get; set; }
+        public int SaveCallCount { get; private set; }
 
         public Task<LibraryConfig> LoadAsync(string libraryRoot, CancellationToken cancellationToken)
         {
@@ -1090,7 +1153,8 @@ public sealed class MainShellViewModelTests
 
         public Task SaveAsync(LibraryConfig config, CancellationToken cancellationToken)
         {
-            if (ThrowOnSave)
+            SaveCallCount++;
+            if (ThrowOnSave || ThrowOnSaveCall == SaveCallCount)
             {
                 throw new InvalidOperationException("Injected config save failure.");
             }
@@ -1123,6 +1187,19 @@ public sealed class MainShellViewModelTests
                 }).ToList(),
                 DefaultOptions = config.DefaultOptions
             };
+        }
+    }
+
+    private sealed class RecordingRemovedRepositoryDirectoryDeleter : IRemovedRepositoryDirectoryDeleter
+    {
+        private int deleteCallCount;
+
+        public int DeleteCallCount => deleteCallCount;
+
+        public void Delete(string removedPath)
+        {
+            Interlocked.Increment(ref deleteCallCount);
+            Directory.Delete(removedPath, recursive: true);
         }
     }
 

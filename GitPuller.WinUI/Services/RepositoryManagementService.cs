@@ -225,24 +225,14 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         ArgumentNullException.ThrowIfNull(removedRepository);
 
         var config = await configStore.LoadAsync(libraryRoot, cancellationToken).ConfigureAwait(false);
-        var removedPath = removalService.PreparePermanentDelete(config, removedRepository);
         await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
+        var removedPath = removalService.PreparePermanentDelete(config, removedRepository);
         if (Directory.Exists(removedPath))
         {
-            try
-            {
-                removedRepositoryDirectoryDeleter.Delete(removedPath);
-            }
-            catch
-            {
-                await RestoreRemovedRepositoryMetadataAsync(
-                    config.LibraryRoot,
-                    removedRepository,
-                    cancellationToken).ConfigureAwait(false);
-                throw;
-            }
+            removedRepositoryDirectoryDeleter.Delete(removedPath);
         }
 
+        await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
         var savedConfig = await configStore.LoadAsync(config.LibraryRoot, cancellationToken).ConfigureAwait(false);
         return CreateLoadResult(savedConfig);
     }
@@ -256,18 +246,6 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
             inventory,
             config.RemovedRepositories.ToArray(),
             config.Categories.ToArray());
-    }
-
-    private async Task RestoreRemovedRepositoryMetadataAsync(
-        string libraryRoot,
-        RemovedRepositoryRecord removedRepository,
-        CancellationToken cancellationToken)
-    {
-        var config = await configStore.LoadAsync(libraryRoot, cancellationToken).ConfigureAwait(false);
-        EnsureMutableCollections(config);
-        config.RemovedRepositories.RemoveAll(existing => PathsEqual(existing.RemovedPath, removedRepository.RemovedPath));
-        config.RemovedRepositories.Add(CloneRemovedRepositoryRecord(removedRepository));
-        await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
     }
 
     private static void AddRepositoryMetadata(LibraryConfig config, RepositoryDescriptor repository)
@@ -287,19 +265,6 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         {
             config.Categories.Add(repository.Category);
         }
-    }
-
-    private static RemovedRepositoryRecord CloneRemovedRepositoryRecord(RemovedRepositoryRecord removedRepository)
-    {
-        return new RemovedRepositoryRecord
-        {
-            Name = removedRepository.Name,
-            OriginalPath = removedRepository.OriginalPath,
-            RemovedPath = removedRepository.RemovedPath,
-            Category = removedRepository.Category,
-            RemoteUrl = removedRepository.RemoteUrl,
-            RemovedAt = removedRepository.RemovedAt
-        };
     }
 
     private static void EnsureMutableCollections(LibraryConfig config)
