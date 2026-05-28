@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "GitPuller.WinUI (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "GitPuller.WinUI (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
