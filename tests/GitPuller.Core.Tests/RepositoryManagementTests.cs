@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using GitPuller;
 
 namespace GitPuller.Core.Tests;
@@ -807,6 +808,34 @@ public sealed class RepositoryManagementTests : IDisposable
         Assert.Equal(cancellationTokenSource.Token, exception.CancellationToken);
     }
 
+    [Fact]
+    public async Task Clone_WhenCanceledAfterGitStarts_ThrowsOperationCanceledException()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "CloneCanceledInFlight", "Library");
+        var service = new RepositoryCloneService();
+        using var server = new HangingGitHttpEndpoint();
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            server.RepositoryUrl);
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        var cloneTask = Task.Run(() => service.Clone(
+            request,
+            new GitPullerOptions
+            {
+                GitTimeoutMilliseconds = 30000
+            },
+            cancellationTokenSource.Token));
+
+        await server.WaitForRequestAsync();
+        cancellationTokenSource.CancelAfter(300);
+
+        var exception = await Assert.ThrowsAsync<OperationCanceledException>(async () => await cloneTask);
+
+        Assert.Equal(cancellationTokenSource.Token, exception.CancellationToken);
+    }
+
     public void Dispose()
     {
         try
@@ -907,5 +936,116 @@ public sealed class RepositoryManagementTests : IDisposable
     {
         return Path.GetFullPath(path)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private sealed class HangingGitHttpEndpoint : IDisposable
+    {
+        private readonly HttpListener listener = new();
+        private readonly CancellationTokenSource disposeTokenSource = new();
+        private readonly Task serverTask;
+        private readonly TaskCompletionSource<bool> requestSeen = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public HangingGitHttpEndpoint()
+        {
+            var prefix = $"http://127.0.0.1:{GetFreeTcpPort()}/";
+            listener.Prefixes.Add(prefix);
+            listener.Start();
+            RepositoryUrl = prefix + "repo.git";
+            serverTask = Task.Run(RunAsync);
+        }
+
+        public string RepositoryUrl { get; }
+
+        public Task WaitForRequestAsync()
+        {
+            return requestSeen.Task;
+        }
+
+        public void Dispose()
+        {
+            disposeTokenSource.Cancel();
+
+            try
+            {
+                listener.Stop();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                serverTask.Wait(TimeSpan.FromSeconds(5));
+            }
+            catch
+            {
+            }
+
+            listener.Close();
+            disposeTokenSource.Dispose();
+        }
+
+        private async Task RunAsync()
+        {
+            try
+            {
+                using var registration = disposeTokenSource.Token.Register(() =>
+                {
+                    try
+                    {
+                        listener.Stop();
+                    }
+                    catch
+                    {
+                    }
+                });
+
+                while (!disposeTokenSource.IsCancellationRequested)
+                {
+                    HttpListenerContext context;
+                    try
+                    {
+                        context = await listener.GetContextAsync().ConfigureAwait(false);
+                    }
+                    catch (HttpListenerException)
+                    {
+                        break;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        break;
+                    }
+
+                    requestSeen.TrySetResult(true);
+
+                    try
+                    {
+                        await Task.Delay(Timeout.InfiniteTimeSpan, disposeTokenSource.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+
+                    try
+                    {
+                        context.Response.Abort();
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            finally
+            {
+                requestSeen.TrySetCanceled(disposeTokenSource.Token);
+            }
+        }
+
+        private static int GetFreeTcpPort()
+        {
+            using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+            listener.Start();
+            return ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        }
     }
 }

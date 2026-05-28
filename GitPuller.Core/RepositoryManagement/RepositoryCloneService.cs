@@ -230,6 +230,7 @@ public sealed class RepositoryCloneService
                 return timedOutResult;
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             Task.WaitAll(standardOutput, standardError);
             var stdout = standardOutput.Result.Trim();
             var stderr = standardError.Result.Trim();
