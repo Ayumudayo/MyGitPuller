@@ -61,6 +61,48 @@ public sealed class MainShellViewModelTests
         Assert.False(blocked.CanRetry);
     }
 
+    [Theory]
+    [InlineData(RepositoryResultStatus.Failed, "\uE783")]
+    [InlineData(RepositoryResultStatus.Warning, "\uE7BA")]
+    [InlineData(RepositoryResultStatus.Updated, "\uE896")]
+    [InlineData(RepositoryResultStatus.Clean, "\uE73E")]
+    public void RepositoryResult_StatusIcon_ReturnsExpectedGlyph(
+        RepositoryResultStatus status,
+        string expectedGlyph)
+    {
+        var result = Result(status.ToString(), status);
+
+        Assert.Equal(expectedGlyph, result.StatusIcon);
+    }
+
+    [Theory]
+    [InlineData(RepositoryResultStatus.Failed, "GitPullerFailedBrush")]
+    [InlineData(RepositoryResultStatus.Warning, "GitPullerWarningBrush")]
+    [InlineData(RepositoryResultStatus.Updated, "GitPullerUpdatedBrush")]
+    [InlineData(RepositoryResultStatus.Clean, "GitPullerCleanBrush")]
+    public void RepositoryResult_StatusResourceKey_ReturnsExpectedBrushKey(
+        RepositoryResultStatus status,
+        string expectedResourceKey)
+    {
+        var result = Result(status.ToString(), status);
+
+        Assert.Equal(expectedResourceKey, result.StatusResourceKey);
+    }
+
+    [Theory]
+    [InlineData(RepositoryResultStatus.Failed)]
+    [InlineData(RepositoryResultStatus.Warning)]
+    [InlineData(RepositoryResultStatus.Updated)]
+    [InlineData(RepositoryResultStatus.Clean)]
+    public void RepositoryResult_StatusVisualMetadata_RemainsPureViewModelData(RepositoryResultStatus status)
+    {
+        var result = Result(status.ToString(), status);
+
+        Assert.False(string.IsNullOrWhiteSpace(result.StatusIcon));
+        Assert.False(string.IsNullOrWhiteSpace(result.StatusResourceKey));
+        Assert.DoesNotContain("Brush", result.StatusIcon, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void RepositoryResult_FromResult_UsesWarningDiagnosticForSuccessfulWarningLog()
     {

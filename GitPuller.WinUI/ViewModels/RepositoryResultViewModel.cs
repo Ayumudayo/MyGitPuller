@@ -50,6 +50,20 @@ public sealed class RepositoryResultViewModel
     public bool IsRetryPrimary => RetryActionState == RetryActionState.EnabledPrimary;
     public bool IsRetrySecondary => RetryActionState == RetryActionState.EnabledSecondary;
     public string StatusText => Status.ToString();
+    public string StatusIcon => Status switch
+    {
+        RepositoryResultStatus.Failed => "\uE783",
+        RepositoryResultStatus.Warning => "\uE7BA",
+        RepositoryResultStatus.Updated => "\uE896",
+        _ => "\uE73E"
+    };
+    public string StatusResourceKey => Status switch
+    {
+        RepositoryResultStatus.Failed => "GitPullerFailedBrush",
+        RepositoryResultStatus.Warning => "GitPullerWarningBrush",
+        RepositoryResultStatus.Updated => "GitPullerUpdatedBrush",
+        _ => "GitPullerCleanBrush"
+    };
     public string RetryButtonText => Diagnostic?.RetryPolicy switch
     {
         RetryPolicy.Recommended => "Retry now",

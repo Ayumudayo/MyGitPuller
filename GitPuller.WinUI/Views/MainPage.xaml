@@ -132,19 +132,65 @@
                         SelectionMode="Single">
                         <TreeView.ItemTemplate>
                             <DataTemplate x:DataType="vm:RepositoryFolderNodeViewModel">
-                                <StackPanel
+                                <Grid
+                                    MinWidth="0"
                                     Padding="0,4"
-                                    Spacing="2"
+                                    ColumnSpacing="10"
                                     ToolTipService.ToolTip="{x:Bind AttentionText}">
-                                    <TextBlock
-                                        FontWeight="SemiBold"
-                                        Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                        Text="{x:Bind DisplayName}" />
-                                    <TextBlock
-                                        Style="{StaticResource CaptionTextBlockStyle}"
-                                        Text="{x:Bind AttentionText}"
-                                        TextWrapping="WrapWholeWords" />
-                                </StackPanel>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <FontIcon
+                                        Margin="0,2,0,0"
+                                        FontSize="15"
+                                        Foreground="{ThemeResource GitPullerFolderAccentBrush}"
+                                        Glyph="&#xE8B7;" />
+
+                                    <StackPanel
+                                        Grid.Column="1"
+                                        MinWidth="0"
+                                        Spacing="2">
+                                        <TextBlock
+                                            FontWeight="SemiBold"
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{x:Bind Name}" />
+                                        <StackPanel
+                                            Orientation="Horizontal"
+                                            Spacing="10">
+                                            <StackPanel
+                                                Orientation="Horizontal"
+                                                Spacing="4">
+                                                <FontIcon
+                                                    FontSize="11"
+                                                    Foreground="{ThemeResource GitPullerFolderAccentBrush}"
+                                                    Glyph="&#xE8CC;" />
+                                                <TextBlock
+                                                    Foreground="{ThemeResource GitPullerFolderAccentBrush}"
+                                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                                    Text="{x:Bind RepositoryCount}" />
+                                            </StackPanel>
+                                            <StackPanel
+                                                Orientation="Horizontal"
+                                                Spacing="4">
+                                                <FontIcon
+                                                    FontSize="11"
+                                                    Foreground="{ThemeResource GitPullerWarningBrush}"
+                                                    Glyph="&#xE7BA;" />
+                                                <TextBlock
+                                                    Foreground="{ThemeResource GitPullerWarningBrush}"
+                                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                                    Text="{x:Bind AttentionCount}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                        <TextBlock
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind AttentionText}"
+                                            TextWrapping="WrapWholeWords" />
+                                    </StackPanel>
+                                </Grid>
                             </DataTemplate>
                         </TreeView.ItemTemplate>
                     </TreeView>
@@ -434,7 +480,7 @@
                                             ColumnSpacing="12"
                                             RowSpacing="4">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="120" />
+                                                <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
@@ -444,11 +490,30 @@
                                                 <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
 
-                                            <TextBlock
+                                            <Border
                                                 Grid.Row="0"
                                                 Grid.Column="0"
-                                                FontWeight="SemiBold"
-                                                Text="{x:Bind StatusText}" />
+                                                Padding="8,4"
+                                                Background="{ThemeResource GitPullerSurfaceAltBrush}"
+                                                BorderBrush="{x:Bind StatusResourceKey, Converter={StaticResource ResourceKeyToBrushConverter}}"
+                                                BorderThickness="1"
+                                                CornerRadius="6"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Top">
+                                                <StackPanel
+                                                    Orientation="Horizontal"
+                                                    Spacing="6">
+                                                    <FontIcon
+                                                        FontSize="12"
+                                                        Foreground="{x:Bind StatusResourceKey, Converter={StaticResource ResourceKeyToBrushConverter}}"
+                                                        Glyph="{x:Bind StatusIcon}" />
+                                                    <TextBlock
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{x:Bind StatusResourceKey, Converter={StaticResource ResourceKeyToBrushConverter}}"
+                                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                                        Text="{x:Bind StatusText}" />
+                                                </StackPanel>
+                                            </Border>
                                             <TextBlock
                                                 Grid.Row="0"
                                                 Grid.Column="1"
@@ -473,6 +538,7 @@
                                                 Grid.Row="2"
                                                 Grid.Column="1"
                                                 Grid.ColumnSpan="2"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                 Style="{StaticResource GitPullerWrappingTextBlockStyle}"
                                                 Text="{x:Bind Path}" />
                                         </Grid>
