@@ -14,6 +14,7 @@ public sealed class RepoResult
     public TimeSpan Elapsed { get; set; }
     public List<RepoOperation> Operations { get; } = new();
     public List<LogItem> Logs { get; } = new();
+    public FailureDiagnostic? Diagnostic { get; set; }
 }
 
 public sealed class RepoOperation

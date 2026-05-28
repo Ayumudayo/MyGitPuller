@@ -137,6 +137,7 @@ public sealed class GitPullerRunner
         result.StartedAt = repositoryStartedAt;
         result.CompletedAt = DateTimeOffset.Now;
         result.Elapsed = repositoryStopwatch.Elapsed;
+        result.Diagnostic = GitFailureClassifier.Classify(result);
         return result;
     }
 
