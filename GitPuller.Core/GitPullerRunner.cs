@@ -28,9 +28,18 @@ public sealed class GitPullerRunner
         return Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var repository = request.Inventory.Repositories.FirstOrDefault(x =>
-                string.Equals(x.Path, GitRepositorySupport.NormalizeRepoPath(repoPath), StringComparison.OrdinalIgnoreCase))
-                ?? GitRepositorySupport.CreateRepositoryDescriptor(request.Inventory.LibraryRoot, repoPath, remoteUrl: null);
+            var repository = FindInventoryRepository(request, repoPath);
+            if (repository == null)
+            {
+                var rejectedRepository = GitRepositorySupport.CreateRepositoryDescriptor(request.Inventory.LibraryRoot, repoPath, remoteUrl: null);
+                progress?.Report(GitPullerProgressEvent.RepositoryStarted(rejectedRepository, 1, 0));
+                var rejectedResult = RejectRepository(
+                    rejectedRepository,
+                    $"Repository is not part of the selected repository inventory: {GitRepositorySupport.NormalizeRepoPath(repoPath)}",
+                    cancellationToken);
+                progress?.Report(GitPullerProgressEvent.RepositoryCompleted(rejectedRepository, rejectedResult, 1, 1));
+                return rejectedResult;
+            }
 
             progress?.Report(GitPullerProgressEvent.RepositoryStarted(repository, 1, 0));
             var result = RunRepository(repository, request.Options, cancellationToken);
@@ -42,6 +51,13 @@ public sealed class GitPullerRunner
     public Task<RepoResult> RetryRepositoryAsync(GitPullerRunRequest previousRunRequest, string repoPath, IProgress<GitPullerProgressEvent>? progress, CancellationToken cancellationToken)
     {
         return RunRepositoryAsync(previousRunRequest, repoPath, progress, cancellationToken);
+    }
+
+    private static RepositoryDescriptor? FindInventoryRepository(GitPullerRunRequest request, string repoPath)
+    {
+        var normalizedRepoPath = GitRepositorySupport.NormalizeRepoPath(repoPath);
+        return request.Inventory.Repositories.FirstOrDefault(repository =>
+            string.Equals(GitRepositorySupport.NormalizeRepoPath(repository.Path), normalizedRepoPath, StringComparison.OrdinalIgnoreCase));
     }
 
     private GitPullerRunResult RunAll(GitPullerRunRequest request, IProgress<GitPullerProgressEvent>? progress, CancellationToken cancellationToken)
@@ -91,9 +107,30 @@ public sealed class GitPullerRunner
 
     private RepoResult RunRepository(RepositoryDescriptor repository, GitPullerOptions options, CancellationToken cancellationToken)
     {
+        return FinalizeRepositoryResult(() => ProcessRepository(repository, options, cancellationToken));
+    }
+
+    private RepoResult RejectRepository(RepositoryDescriptor repository, string message, CancellationToken cancellationToken)
+    {
+        return FinalizeRepositoryResult(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var result = new RepoResult
+            {
+                Path = repository.Path,
+                Name = repository.Name,
+                Failed = true
+            };
+            result.Logs.Add(new LogItem { Text = message, IsError = true });
+            return result;
+        });
+    }
+
+    private RepoResult FinalizeRepositoryResult(Func<RepoResult> createResult)
+    {
         var repositoryStartedAt = DateTimeOffset.Now;
         var repositoryStopwatch = Stopwatch.StartNew();
-        var result = ProcessRepository(repository, options, cancellationToken);
+        var result = createResult();
         repositoryStopwatch.Stop();
 
         result.WorkerSlot = GetWorkerSlot();
