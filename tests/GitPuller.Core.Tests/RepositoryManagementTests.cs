@@ -453,6 +453,166 @@ public sealed class RepositoryManagementTests : IDisposable
         Assert.DoesNotContain(inventory.Repositories, x => x.Path.Contains(".mygitpuller", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Preview_DerivesRepositoryNameCategoryAndTargetPath_FromHttpsUrl()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "https://github.com/goatcorp/Dalamud.git");
+        var service = new RepositoryCloneService();
+
+        var preview = service.Preview(request);
+
+        Assert.True(preview.IsValid);
+        Assert.Null(preview.Diagnostic);
+        Assert.Equal("Dalamud", preview.RepositoryName);
+        Assert.Equal("Plugins", preview.Category);
+        Assert.Equal(Path.Combine(Path.GetFullPath(libraryRoot), "Plugins", "Dalamud"), preview.TargetPath);
+        Assert.NotNull(preview.Repository);
+        Assert.Equal("Dalamud", preview.Repository.Name);
+        Assert.Equal("Plugins", preview.Repository.Category);
+        Assert.Equal("https://github.com/goatcorp/Dalamud.git", preview.Repository.RemoteUrl);
+    }
+
+    [Fact]
+    public void Preview_RejectsMissingCategory_WithoutInferringOne()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            string.Empty,
+            "https://github.com/goatcorp/Dalamud.git");
+        var service = new RepositoryCloneService();
+
+        var preview = service.Preview(request);
+
+        Assert.False(preview.IsValid);
+        Assert.NotNull(preview.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, preview.Diagnostic.Category);
+        Assert.Contains("Category", preview.Diagnostic.Title, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(preview.Repository);
+    }
+
+    [Fact]
+    public void Preview_ClassifiesExistingNonEmptyTargetDirectoryAsClonePathConflict()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var targetPath = Path.Combine(libraryRoot, "Plugins", "Dalamud");
+        Directory.CreateDirectory(targetPath);
+        File.WriteAllText(Path.Combine(targetPath, "blocking.txt"), "occupied");
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "https://github.com/goatcorp/Dalamud.git");
+        var service = new RepositoryCloneService();
+
+        var preview = service.Preview(request);
+
+        Assert.False(preview.IsValid);
+        Assert.NotNull(preview.Diagnostic);
+        Assert.Equal(FailureCategory.ClonePathConflict, preview.Diagnostic.Category);
+        Assert.Equal(targetPath, preview.Diagnostic.RelatedPath);
+        Assert.Contains("already exists", preview.Diagnostic.Evidence, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Preview_RejectsInvalidUrlBeforeGitRuns()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "not a git url");
+        var service = new RepositoryCloneService();
+
+        var preview = service.Preview(request);
+
+        Assert.False(preview.IsValid);
+        Assert.NotNull(preview.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, preview.Diagnostic.Category);
+        Assert.Contains("URL", preview.Diagnostic.Title, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(preview.Repository);
+    }
+
+    [Fact]
+    public void Preview_RejectsCategoryTraversalOutsideLibraryRoot()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            "..\\Outside",
+            "https://github.com/goatcorp/Dalamud.git");
+        var service = new RepositoryCloneService();
+
+        var preview = service.Preview(request);
+
+        Assert.False(preview.IsValid);
+        Assert.NotNull(preview.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, preview.Diagnostic.Category);
+        Assert.Contains("outside", preview.Diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Preview_RejectsReservedMyGitPullerCategory()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            ".mygitpuller\\hidden",
+            "https://github.com/goatcorp/Dalamud.git");
+        var service = new RepositoryCloneService();
+
+        var preview = service.Preview(request);
+
+        Assert.False(preview.IsValid);
+        Assert.NotNull(preview.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, preview.Diagnostic.Category);
+        Assert.Contains(".mygitpuller", preview.Diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Clone_ClonesFromLocalBareRepository_AndReturnsConfigReadyDescriptor()
+    {
+        var scenarioRoot = Path.Combine(tempRoot, "CloneFromLocalBareRepository");
+        var libraryRoot = Path.Combine(scenarioRoot, "Library");
+        var remotePath = CreateBareRemoteRepository(scenarioRoot, "Dalamud");
+        var request = new RepositoryAddRequest(libraryRoot, "Plugins", remotePath);
+        var service = new RepositoryCloneService();
+
+        var result = service.Clone(request);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.GitCommandExecuted);
+        Assert.Null(result.Diagnostic);
+        Assert.NotNull(result.Repository);
+        Assert.Equal(Path.Combine(Path.GetFullPath(libraryRoot), "Plugins", "Dalamud"), result.Repository.Path);
+        Assert.Equal("Dalamud", result.Repository.Name);
+        Assert.Equal("Plugins", result.Repository.Category);
+        Assert.Equal(remotePath, result.Repository.RemoteUrl);
+        Assert.True(Directory.Exists(result.Repository.Path));
+        Assert.True(Directory.Exists(Path.Combine(result.Repository.Path, ".git")));
+        Assert.Equal("seed", File.ReadAllText(Path.Combine(result.Repository.Path, "README.md")));
+    }
+
+    [Fact]
+    public void Clone_RejectsInvalidUrlWithoutRunningGit()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(libraryRoot, "Plugins", "definitely not a clone source");
+        var service = new RepositoryCloneService();
+
+        var result = service.Clone(request);
+
+        Assert.False(result.Succeeded);
+        Assert.False(result.GitCommandExecuted);
+        Assert.NotNull(result.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, result.Diagnostic.Category);
+        Assert.Null(result.Repository);
+        Assert.False(Directory.Exists(Path.Combine(libraryRoot, "Plugins", "definitely not a clone source")));
+    }
+
     public void Dispose()
     {
         try
@@ -492,6 +652,61 @@ public sealed class RepositoryManagementTests : IDisposable
         Directory.CreateDirectory(Path.Combine(repositoryPath, ".git"));
         File.WriteAllText(Path.Combine(repositoryPath, "README.md"), $"# {name}");
         return repositoryPath;
+    }
+
+    private static string CreateBareRemoteRepository(string scenarioRoot, string repositoryName)
+    {
+        var remotePath = Path.Combine(scenarioRoot, $"{repositoryName}.git");
+        var seedPath = Path.Combine(scenarioRoot, "seed");
+
+        Directory.CreateDirectory(scenarioRoot);
+
+        RunGit(scenarioRoot, "init", "--bare", remotePath);
+        RunGit(scenarioRoot, "clone", remotePath, seedPath);
+        RunGit(seedPath, "config", "user.name", "Test User");
+        RunGit(seedPath, "config", "user.email", "test@example.invalid");
+        RunGit(seedPath, "checkout", "-b", "main");
+        File.WriteAllText(Path.Combine(seedPath, "README.md"), "seed");
+        RunGit(seedPath, "add", "README.md");
+        RunGit(seedPath, "commit", "-m", "Initial commit");
+        RunGit(seedPath, "push", "-u", "origin", "main");
+        RunGit(remotePath, "symbolic-ref", "HEAD", "refs/heads/main");
+
+        return Path.GetFullPath(remotePath);
+    }
+
+    private static void RunGit(string workingDirectory, params string[] arguments)
+    {
+        var processStartInfo = new ProcessStartInfo
+        {
+            FileName = "git",
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        foreach (var argument in arguments)
+        {
+            processStartInfo.ArgumentList.Add(argument);
+        }
+
+        processStartInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
+        processStartInfo.Environment["GCM_INTERACTIVE"] = "never";
+
+        using var process = Process.Start(processStartInfo);
+        Assert.NotNull(process);
+
+        var standardOutput = process.StandardOutput.ReadToEndAsync();
+        var standardError = process.StandardError.ReadToEndAsync();
+        Assert.True(process.WaitForExit(30000), $"git command timed out: git {string.Join(' ', arguments)}");
+        Task.WaitAll(standardOutput, standardError);
+
+        var output = (standardOutput.Result + Environment.NewLine + standardError.Result).Trim();
+        Assert.True(
+            process.ExitCode == 0,
+            $"git command failed ({process.ExitCode}): git {string.Join(' ', arguments)}{Environment.NewLine}{output}");
     }
 
     private static string NormalizePath(string path)

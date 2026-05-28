@@ -9,6 +9,7 @@ public enum FailureCategory
     NetworkTimeout,
     RemoteNotFoundOrNoAccess,
     ClonePathConflict,
+    InvalidCloneRequest,
     SubmoduleFailure,
     UnknownGitFailure
 }

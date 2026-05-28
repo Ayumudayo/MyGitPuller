@@ -1,0 +1,3 @@
+namespace GitPuller;
+
+public sealed record RepositoryAddRequest(string LibraryRoot, string Category, string RemoteUrl);
