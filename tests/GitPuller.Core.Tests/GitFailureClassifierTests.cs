@@ -86,6 +86,43 @@ public sealed class GitFailureClassifierTests : IDisposable
         Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
     }
 
+    [Fact]
+    public void Classify_PrefersAuthenticationFailure_OverCleanupFailureWarning()
+    {
+        var result = CreateResult(
+            failed: true,
+            CreateLogItem("Could not remove stale Git lock file 'C:\\Repos\\RepoA\\.git\\index.lock': Access to the path is denied.", isWarning: true),
+            CreateLogItem("Fetch failed after retries:\nfatal: could not read from remote repository", isError: true));
+
+        var diagnostic = GitFailureClassifier.Classify(result);
+
+        Assert.Equal(FailureCategory.AuthenticationFailure, diagnostic.Category);
+        Assert.Equal(RetryPolicy.BlockedUntilAction, diagnostic.RetryPolicy);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+    }
+
+    [Fact]
+    public void Classify_PrefersNetworkTimeout_OverCleanupFailureWarning()
+    {
+        var result = CreateResult(
+            failed: true,
+            CreateLogItem("Could not remove stale Git lock file 'C:\\Repos\\RepoA\\.git\\index.lock': Access to the path is denied.", isWarning: true),
+            CreateLogItem("Fetch failed after retries:\nTimeout (60s)\nCommand: git fetch --all --prune --prune-tags --tags --force", isError: true));
+        result.Operations.Add(new RepoOperation
+        {
+            Command = "git fetch --all --prune --prune-tags --tags --force",
+            WorkingDirectory = result.Path,
+            ExitCode = -1,
+            TimedOut = true
+        });
+
+        var diagnostic = GitFailureClassifier.Classify(result);
+
+        Assert.Equal(FailureCategory.NetworkTimeout, diagnostic.Category);
+        Assert.Equal(RetryPolicy.Recommended, diagnostic.RetryPolicy);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+    }
+
     [Theory]
     [InlineData("fatal: Unable to create 'C:/Repos/RepoA/.git/index.lock': File exists.")]
     [InlineData("another git process seems to be running in this repository")]
@@ -156,6 +193,25 @@ public sealed class GitFailureClassifierTests : IDisposable
         Assert.Equal(FailureCategory.NetworkTimeout, diagnostic.Category);
         Assert.Equal(RetryPolicy.Recommended, diagnostic.RetryPolicy);
         Assert.Equal("git fetch --all --prune --prune-tags --tags --force", diagnostic.RelatedCommand);
+    }
+
+    [Fact]
+    public void Classify_DoesNotTreatTimedOutLocalResetAsNetworkTimeout()
+    {
+        var result = CreateResult(failed: true, "Timeout (60s)\nCommand: git reset --hard origin/main");
+        result.Operations.Add(new RepoOperation
+        {
+            Command = "git reset --hard origin/main",
+            WorkingDirectory = result.Path,
+            ExitCode = -1,
+            TimedOut = true
+        });
+
+        var diagnostic = GitFailureClassifier.Classify(result);
+
+        Assert.Equal(FailureCategory.UnknownGitFailure, diagnostic.Category);
+        Assert.Equal(RetryPolicy.Unknown, diagnostic.RetryPolicy);
+        Assert.Equal("git reset --hard origin/main", diagnostic.RelatedCommand);
     }
 
     [Fact]

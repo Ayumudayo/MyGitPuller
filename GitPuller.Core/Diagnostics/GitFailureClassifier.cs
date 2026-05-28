@@ -33,11 +33,11 @@ public static class GitFailureClassifier
             .Where(text => !string.IsNullOrWhiteSpace(text))
             .ToArray();
 
-        var hasStaleLockRemoval = TryFindMatch(logTexts, IsStaleLockRemovedText, out var staleLockEvidence);
+        var hasStaleLockCleanupSignal = TryFindMatch(logTexts, IsStaleLockCleanupSignalText, out var staleLockEvidence);
 
         if (!result.Failed)
         {
-            if (hasStaleLockRemoval)
+            if (hasStaleLockCleanupSignal)
             {
                 return CreateDiagnostic(
                     category: FailureCategory.StaleLockRemoved,
@@ -91,13 +91,8 @@ public static class GitFailureClassifier
                 relatedCommandSelector: operation => operation.ExitCode != 0 || operation.TimedOut);
         }
 
-        if (TryFindMatch(logTexts, IsNetworkTimeoutText, out var timeoutEvidence)
-            || result.Operations.Any(operation => operation.TimedOut))
+        if (TryGetNetworkTimeoutEvidence(result, logTexts, out var timeoutEvidence))
         {
-            var evidence = !string.IsNullOrWhiteSpace(timeoutEvidence)
-                ? timeoutEvidence
-                : "A Git command timed out without a matching log entry.";
-
             return CreateDiagnostic(
                 category: FailureCategory.NetworkTimeout,
                 retryPolicy: RetryPolicy.Recommended,
@@ -105,9 +100,9 @@ public static class GitFailureClassifier
                 title: "Git operation timed out",
                 explanation: "The repository failed because a Git network or transport operation timed out.",
                 suggestedAction: "Retry this repository. If the timeout repeats, check network reachability and remote responsiveness.",
-                evidence: evidence,
+                evidence: timeoutEvidence,
                 result,
-                relatedCommandSelector: operation => operation.TimedOut);
+                relatedCommandSelector: operation => operation.TimedOut && IsTransportCommand(operation.Command));
         }
 
         if (TryFindMatch(logTexts, IsClonePathConflictText, out var clonePathConflictEvidence))
@@ -152,7 +147,7 @@ public static class GitFailureClassifier
                 relatedCommandSelector: operation => operation.ExitCode != 0 || operation.TimedOut);
         }
 
-        if (hasStaleLockRemoval)
+        if (hasStaleLockCleanupSignal)
         {
             return CreateDiagnostic(
                 category: FailureCategory.StaleLockRemoved,
@@ -242,7 +237,7 @@ public static class GitFailureClassifier
 
     private static bool IsRecentLockFailureText(string text)
     {
-        if (IsStaleLockRemovedText(text))
+        if (IsStaleLockCleanupSignalText(text))
         {
             return false;
         }
@@ -252,9 +247,10 @@ public static class GitFailureClassifier
             || Contains(text, "another git process seems to be running");
     }
 
-    private static bool IsStaleLockRemovedText(string text)
+    private static bool IsStaleLockCleanupSignalText(string text)
     {
-        return Contains(text, "removed stale git lock file");
+        return Contains(text, "removed stale git lock file")
+            || Contains(text, "could not remove stale git lock file");
     }
 
     private static bool IsAuthenticationFailureText(string text)
@@ -270,6 +266,71 @@ public static class GitFailureClassifier
             || Contains(text, "operation timed out")
             || Contains(text, "connection timed out")
             || (Contains(text, "unable to access") && Contains(text, "timed out"));
+    }
+
+    private static bool TryGetNetworkTimeoutEvidence(RepoResult result, IEnumerable<string> texts, out string evidence)
+    {
+        foreach (var text in texts)
+        {
+            if (!IsNetworkTimeoutText(text))
+            {
+                continue;
+            }
+
+            if (Contains(text, "unable to access"))
+            {
+                evidence = text;
+                return true;
+            }
+
+            var commandFromText = ExtractCommandFromTimeoutText(text);
+            if (IsTransportCommand(commandFromText))
+            {
+                evidence = text;
+                return true;
+            }
+        }
+
+        var timedOutTransportOperation = result.Operations.LastOrDefault(operation =>
+            operation.TimedOut && IsTransportCommand(operation.Command));
+        if (timedOutTransportOperation != null)
+        {
+            evidence = "A transport Git command timed out without a matching log entry.";
+            return true;
+        }
+
+        evidence = string.Empty;
+        return false;
+    }
+
+    private static string? ExtractCommandFromTimeoutText(string text)
+    {
+        const string marker = "Command:";
+        var markerIndex = text.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+        {
+            return null;
+        }
+
+        var commandText = text[(markerIndex + marker.Length)..]
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault();
+
+        return string.IsNullOrWhiteSpace(commandText) ? null : commandText.Trim();
+    }
+
+    private static bool IsTransportCommand(string? command)
+    {
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            return false;
+        }
+
+        return command.IndexOf("git fetch", StringComparison.OrdinalIgnoreCase) >= 0
+            || command.IndexOf("git pull", StringComparison.OrdinalIgnoreCase) >= 0
+            || command.IndexOf("submodule fetch", StringComparison.OrdinalIgnoreCase) >= 0
+            || command.IndexOf("submodule update", StringComparison.OrdinalIgnoreCase) >= 0
+            || command.IndexOf("lfs fetch", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private static bool IsRemoteNotFoundOrNoAccessText(string text)
