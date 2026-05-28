@@ -8,10 +8,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="GitPuller.Core\**" />
+    <Content Remove="GitPuller.Core\**" />
+    <EmbeddedResource Remove="GitPuller.Core\**" />
+    <None Remove="GitPuller.Core\**" />
     <Compile Remove="GitPuller.WinUI\**" />
     <Content Remove="GitPuller.WinUI\**" />
     <EmbeddedResource Remove="GitPuller.WinUI\**" />
     <None Remove="GitPuller.WinUI\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="GitPuller.Core\GitPuller.Core.csproj" />
   </ItemGroup>
 
 </Project>
