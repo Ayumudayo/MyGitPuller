@@ -7,6 +7,8 @@ public sealed class RepositoryRemovalService
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(repository);
 
+        EnsureMutableCollections(config);
+
         var libraryRoot = GetLibraryRoot(config);
         var repositoryPath = GitRepositorySupport.NormalizeRepoPath(repository.Path);
         EnsurePathIsUnderRoot(repositoryPath, libraryRoot, "Repository path");
@@ -60,14 +62,18 @@ public sealed class RepositoryRemovalService
         ArgumentNullException.ThrowIfNull(removedRepository);
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
 
+        EnsureMutableCollections(config);
+
         var libraryRoot = GetLibraryRoot(config);
         var removedRoot = GetRemovedRoot(libraryRoot);
+        var configRoot = GetConfigRoot(libraryRoot);
         var normalizedRemovedPath = GitRepositorySupport.NormalizeRepoPath(removedRepository.RemovedPath);
         var normalizedDestinationPath = GitRepositorySupport.NormalizeRepoPath(destinationPath);
         var normalizedCategory = NormalizeCategory(category);
 
         EnsurePathIsUnderRoot(normalizedRemovedPath, removedRoot, "Removed repository path");
         EnsurePathIsUnderRoot(normalizedDestinationPath, libraryRoot, "Restore destination path");
+        EnsurePathIsNotUnderRoot(normalizedDestinationPath, configRoot, "Restore destination path");
 
         if (!Directory.Exists(normalizedRemovedPath))
         {
@@ -110,6 +116,8 @@ public sealed class RepositoryRemovalService
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(removedRepository);
 
+        EnsureMutableCollections(config);
+
         var libraryRoot = GetLibraryRoot(config);
         var removedRoot = GetRemovedRoot(libraryRoot);
         var removedPath = GitRepositorySupport.NormalizeRepoPath(removedRepository.RemovedPath);
@@ -134,6 +142,11 @@ public sealed class RepositoryRemovalService
         return Path.Combine(libraryRoot, ".mygitpuller", "removed");
     }
 
+    private static string GetConfigRoot(string libraryRoot)
+    {
+        return Path.Combine(libraryRoot, ".mygitpuller");
+    }
+
     private static void RemoveRemovedMetadata(LibraryConfig config, RemovedRepositoryRecord removedRepository)
     {
         var removedPath = GitRepositorySupport.NormalizeRepoPath(removedRepository.RemovedPath);
@@ -153,6 +166,28 @@ public sealed class RepositoryRemovalService
         {
             throw new InvalidOperationException($"{description} must stay under '{normalizedRoot}'.");
         }
+    }
+
+    private static void EnsurePathIsNotUnderRoot(string path, string root, string description)
+    {
+        var normalizedPath = GitRepositorySupport.NormalizeRepoPath(path);
+        var normalizedRoot = GitRepositorySupport.NormalizeRepoPath(root);
+        var rootWithSeparator = normalizedRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? normalizedRoot
+            : normalizedRoot + Path.DirectorySeparatorChar;
+
+        if (string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"{description} cannot be inside '{normalizedRoot}'.");
+        }
+    }
+
+    private static void EnsureMutableCollections(LibraryConfig config)
+    {
+        config.Categories ??= [];
+        config.Repositories ??= [];
+        config.RemovedRepositories ??= [];
     }
 
     private static string NormalizeCategory(string? category)

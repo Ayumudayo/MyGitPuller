@@ -144,6 +144,22 @@ public sealed class LibraryConfigStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task LoadAsync_WhenConfigJsonIsMalformed_ThrowsInvalidOperationExceptionWithConfigPath()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        Directory.CreateDirectory(Path.Combine(libraryRoot, ".mygitpuller"));
+
+        var configPath = LibraryConfigStore.GetDefaultConfigPath(libraryRoot);
+        await File.WriteAllTextAsync(configPath, "{ \"categories\": [", Encoding.UTF8);
+
+        var store = new LibraryConfigStore();
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => store.LoadAsync(libraryRoot, CancellationToken.None));
+
+        Assert.Contains(configPath, exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.IsType<System.Text.Json.JsonException>(exception.InnerException);
+    }
+
+    [Fact]
     public void GetDefaultConfigPath_ReturnsLibraryScopedConfigLocation()
     {
         var libraryRoot = Path.Combine(tempRoot, "Library");

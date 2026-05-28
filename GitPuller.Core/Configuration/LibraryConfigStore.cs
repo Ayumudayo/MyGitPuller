@@ -28,8 +28,17 @@ public sealed class LibraryConfigStore
         }
 
         var json = await File.ReadAllTextAsync(configPath, cancellationToken).ConfigureAwait(false);
-        var config = JsonSerializer.Deserialize<LibraryConfig>(json, SerializerOptions) ?? new LibraryConfig();
-        return NormalizeConfig(config, normalizedLibraryRoot);
+        try
+        {
+            var config = JsonSerializer.Deserialize<LibraryConfig>(json, SerializerOptions) ?? new LibraryConfig();
+            return NormalizeConfig(config, normalizedLibraryRoot);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"Library configuration file is invalid JSON: {configPath}",
+                ex);
+        }
     }
 
     public async Task SaveAsync(LibraryConfig config, CancellationToken cancellationToken)
@@ -39,10 +48,37 @@ public sealed class LibraryConfigStore
 
         var normalized = NormalizeConfig(config, Path.GetFullPath(config.LibraryRoot));
         var configPath = GetDefaultConfigPath(normalized.LibraryRoot);
-        Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
-
+        var configDirectory = Path.GetDirectoryName(configPath)!;
+        Directory.CreateDirectory(configDirectory);
         var json = JsonSerializer.Serialize(normalized, SerializerOptions);
-        await File.WriteAllTextAsync(configPath, json, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+        var tempPath = Path.Combine(configDirectory, Path.GetRandomFileName() + ".tmp");
+
+        try
+        {
+            await File.WriteAllTextAsync(tempPath, json, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+
+            if (File.Exists(configPath))
+            {
+                File.Replace(tempPath, configPath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+            }
+            else
+            {
+                File.Move(tempPath, configPath);
+            }
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
+            catch
+            {
+            }
+        }
     }
 
     private static LibraryConfig CreateDefaultConfig(string libraryRoot)

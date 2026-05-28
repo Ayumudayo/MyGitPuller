@@ -89,6 +89,26 @@ public sealed class RepositoryManagementTests : IDisposable
     }
 
     [Fact]
+    public void RestoreRepositoryAs_RejectsDestinationInsideMyGitPuller_UsingMixedCaseAndTrailingSeparator()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var repositoryPath = CreateRepositoryDirectory(libraryRoot, "Plugins", "RepoA");
+        var repository = new RepositoryDescriptor(repositoryPath, "RepoA", "Plugins", "git@github.com:example/repo-a.git");
+        var config = CreateConfig(libraryRoot, repository);
+        var service = new RepositoryRemovalService();
+        var removed = service.RemoveRepository(config, repository);
+        var hiddenDestination = Path.Combine(libraryRoot.ToUpperInvariant(), ".MYGITPULLER", "active", "RepoA") + Path.DirectorySeparatorChar;
+
+        var exception = Assert.Throws<InvalidOperationException>(() => service.RestoreRepositoryAs(config, removed, "Hidden", hiddenDestination));
+
+        Assert.Contains(".mygitpuller", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(Directory.Exists(removed.RemovedPath));
+        Assert.Empty(config.Repositories);
+        Assert.Equal(removed, Assert.Single(config.RemovedRepositories));
+        Assert.False(Directory.Exists(Path.Combine(libraryRoot, ".mygitpuller", "active", "RepoA")));
+    }
+
+    [Fact]
     public void RestoreRepository_ThrowsWhenOriginalPathIsOccupied()
     {
         var libraryRoot = Path.Combine(tempRoot, "Library");
@@ -121,6 +141,97 @@ public sealed class RepositoryManagementTests : IDisposable
         Assert.False(Directory.Exists(removed.RemovedPath));
         Assert.Empty(config.RemovedRepositories);
         Assert.Empty(config.Repositories);
+    }
+
+    [Fact]
+    public void RemoveRepository_InitializesNullCollectionsBeforeFilesystemMutation()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var repositoryPath = CreateRepositoryDirectory(libraryRoot, "Plugins", "RepoA");
+        var repository = new RepositoryDescriptor(repositoryPath, "RepoA", "Plugins", "git@github.com:example/repo-a.git");
+        var config = new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = null!,
+            Repositories = null!,
+            RemovedRepositories = null!
+        };
+        var service = new RepositoryRemovalService();
+
+        var removed = service.RemoveRepository(config, repository);
+
+        Assert.False(Directory.Exists(repositoryPath));
+        Assert.True(Directory.Exists(removed.RemovedPath));
+        Assert.NotNull(config.Repositories);
+        Assert.NotNull(config.RemovedRepositories);
+        Assert.NotNull(config.Categories);
+        Assert.Empty(config.Repositories);
+        Assert.Equal(removed, Assert.Single(config.RemovedRepositories));
+    }
+
+    [Fact]
+    public void RestoreRepositoryAs_InitializesNullCollectionsBeforeFilesystemMutation()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var removedPath = CreateRepositoryDirectory(Path.Combine(libraryRoot, ".mygitpuller", "removed"), "Plugins", "RepoA");
+        var removed = new RemovedRepositoryRecord
+        {
+            Name = "RepoA",
+            OriginalPath = Path.Combine(libraryRoot, "Plugins", "RepoA"),
+            RemovedPath = removedPath,
+            Category = "Plugins",
+            RemoteUrl = "git@github.com:example/repo-a.git",
+            RemovedAt = DateTimeOffset.UtcNow
+        };
+        var destinationPath = Path.Combine(libraryRoot, "Plugins", "RepoA");
+        var config = new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = null!,
+            Repositories = null!,
+            RemovedRepositories = null!
+        };
+        var service = new RepositoryRemovalService();
+
+        var restored = service.RestoreRepositoryAs(config, removed, "Plugins", destinationPath);
+
+        Assert.True(Directory.Exists(destinationPath));
+        Assert.False(Directory.Exists(removedPath));
+        Assert.NotNull(config.Repositories);
+        Assert.NotNull(config.RemovedRepositories);
+        Assert.NotNull(config.Categories);
+        var active = Assert.Single(config.Repositories);
+        Assert.Equal(restored.Path, active.Path);
+        Assert.Empty(config.RemovedRepositories);
+        Assert.Contains("Plugins", config.Categories);
+    }
+
+    [Fact]
+    public void PermanentlyDelete_InitializesNullRemovedRepositoriesBeforeFilesystemMutation()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var removedPath = CreateRepositoryDirectory(Path.Combine(libraryRoot, ".mygitpuller", "removed"), "Plugins", "RepoA");
+        var removed = new RemovedRepositoryRecord
+        {
+            Name = "RepoA",
+            OriginalPath = Path.Combine(libraryRoot, "Plugins", "RepoA"),
+            RemovedPath = removedPath,
+            Category = "Plugins",
+            RemoteUrl = "git@github.com:example/repo-a.git",
+            RemovedAt = DateTimeOffset.UtcNow
+        };
+        var config = new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            RemovedRepositories = null!
+        };
+        var service = new RepositoryRemovalService();
+
+        service.PermanentlyDelete(config, removed);
+
+        Assert.False(Directory.Exists(removedPath));
+        Assert.NotNull(config.RemovedRepositories);
+        Assert.Empty(config.RemovedRepositories);
     }
 
     [Fact]
