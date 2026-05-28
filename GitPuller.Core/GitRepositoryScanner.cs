@@ -303,6 +303,7 @@ internal static class GitRepositorySupport
         }
 
         return name.Equals(".git", StringComparison.OrdinalIgnoreCase)
+            || name.Equals(".mygitpuller", StringComparison.OrdinalIgnoreCase)
             || name.Equals(".vs", StringComparison.OrdinalIgnoreCase)
             || name.Equals("bin", StringComparison.OrdinalIgnoreCase)
             || name.Equals("obj", StringComparison.OrdinalIgnoreCase)
