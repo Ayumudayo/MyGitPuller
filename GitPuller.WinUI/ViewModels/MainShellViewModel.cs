@@ -25,6 +25,7 @@ public sealed class MainShellViewModel : ObservableObject
     private string runErrorMessage = string.Empty;
     private GitPullerLibraryLoadResult? currentLibraryLoad;
     private GitPullerRunRequest? currentRunRequest;
+    private bool runCompletionApplied;
 
     public MainShellViewModel(
         string libraryRoot,
@@ -243,12 +244,13 @@ public sealed class MainShellViewModel : ObservableObject
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        if (hasInitialized || syncService is null)
+        if (hasInitialized || IsRunning || syncService is null)
         {
             return;
         }
 
         hasInitialized = true;
+        IsRunning = true;
         ClearRunError();
         SetRunProgress(0, 0, "Scanning library...");
 
@@ -270,6 +272,10 @@ public sealed class MainShellViewModel : ObservableObject
         {
             SetRunError(ex.Message);
         }
+        finally
+        {
+            IsRunning = false;
+        }
     }
 
     public async Task RunSyncAsync(CancellationToken cancellationToken = default)
@@ -281,6 +287,7 @@ public sealed class MainShellViewModel : ObservableObject
 
         IsRunning = true;
         ClearRunError();
+        ClearLoadedRunState();
         SetRunProgress(0, 0, "Scanning library...");
 
         try
@@ -288,6 +295,7 @@ public sealed class MainShellViewModel : ObservableObject
             var loadResult = await LoadLibraryForCurrentRootAsync(resetResults: true, cancellationToken);
             var request = loadResult.CreateRunRequest();
             currentRunRequest = request;
+            runCompletionApplied = false;
             SetRunProgress(0, request.Inventory.Repositories.Count, "Starting sync...");
 
             var runResult = await syncService.RunAllAsync(
@@ -534,6 +542,13 @@ public sealed class MainShellViewModel : ObservableObject
 
     private void ApplyRunCompleted(GitPullerRunResult runResult)
     {
+        if (runCompletionApplied)
+        {
+            return;
+        }
+
+        runCompletionApplied = true;
+
         foreach (var result in runResult.RepositoryResults)
         {
             UpsertRepositoryResult(result, FindRepositoryDescriptor(result.Path));
@@ -548,6 +563,20 @@ public sealed class MainShellViewModel : ObservableObject
             runResult.TotalRepositories,
             runResult.TotalRepositories,
             runResult.HasFailures ? "Sync completed with items to review." : "Sync completed.");
+    }
+
+    private void ClearLoadedRunState()
+    {
+        currentLibraryLoad = null;
+        currentRunRequest = null;
+        runCompletionApplied = false;
+
+        Categories.Clear();
+        RemovedRepositories.Clear();
+        RepositoryResults.Clear();
+        SelectedResult = null;
+        RefreshAllRepositoriesNavigationItem();
+        RaiseCommandCanExecuteChanged();
     }
 
     private void ApplyLibraryLoadResult(GitPullerLibraryLoadResult loadResult, bool resetResults)

@@ -302,6 +302,117 @@ public sealed class MainShellViewModelTests
         Assert.Empty(viewModel.RepositoryResults);
     }
 
+    [Fact]
+    public async Task InitializeAsync_MarksBusyAndPreventsRunSyncOverlapDuringSlowLoad()
+    {
+        var repository = Descriptor("Plugins", "SlowInitRepo");
+        var service = new FakeGitPullerSyncService(LoadResult(repository));
+        var firstLoadStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstLoad = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.LoadLibraryAsyncHandler = async (_, cancellationToken) =>
+        {
+            if (service.LoadCallCount == 1)
+            {
+                firstLoadStarted.SetResult();
+                await releaseFirstLoad.Task.WaitAsync(cancellationToken);
+            }
+
+            return LoadResult(repository);
+        };
+
+        var viewModel = new MainShellViewModel(TestRoot, service);
+        var initializeTask = viewModel.InitializeAsync();
+        await firstLoadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(viewModel.IsRunning);
+        Assert.False(viewModel.RunSyncCommand.CanExecute(null));
+
+        await viewModel.RunSyncAsync();
+
+        Assert.Equal(1, service.LoadCallCount);
+        Assert.Equal(0, service.RunAllCallCount);
+
+        releaseFirstLoad.SetResult();
+        await initializeTask;
+
+        Assert.False(viewModel.IsRunning);
+        Assert.True(viewModel.RunSyncCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task RunSyncAsync_LoadFailureAfterSuccessfulRunClearsStaleResultsAndRetryState()
+    {
+        var repository = Descriptor("Plugins", "PreviouslyFailedRepo");
+        var loadResult = LoadResult(repository);
+        var service = new FakeGitPullerSyncService(loadResult);
+        var failReload = false;
+        service.LoadLibraryAsyncHandler = (_, _) => failReload
+            ? throw new InvalidOperationException("Reload failed.")
+            : Task.FromResult(loadResult);
+        service.RunAllAsyncHandler = (request, progress, _) =>
+        {
+            var failedResult = RepoResultFor(
+                repository,
+                failed: true,
+                newCommits: 0,
+                Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error));
+            progress?.Report(GitPullerProgressEvent.RepositoryCompleted(repository, failedResult, 1, 1));
+            return Task.FromResult(new GitPullerRunResult
+            {
+                StartedAt = DateTimeOffset.UtcNow,
+                CompletedAt = DateTimeOffset.UtcNow,
+                RepositoryResults = [failedResult]
+            });
+        };
+
+        var viewModel = new MainShellViewModel(TestRoot, service);
+        await viewModel.RunSyncAsync();
+
+        Assert.Single(viewModel.RepositoryResults);
+        Assert.True(viewModel.RetrySelectedCommand.CanExecute(null));
+
+        failReload = true;
+        await viewModel.RunSyncAsync();
+
+        Assert.True(viewModel.HasRunError);
+        Assert.Empty(viewModel.RepositoryResults);
+        Assert.Null(viewModel.SelectedResult);
+        Assert.False(viewModel.RetrySelectedCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task RunSyncAsync_RunCompletedProgressEventIsSingleFinalizationSource()
+    {
+        var repository = Descriptor("Tools", "ProgressCompletedRepo");
+        var progressResult = RepoResultFor(repository, failed: false, newCommits: 4, diagnostic: null);
+        var service = new FakeGitPullerSyncService(LoadResult(repository));
+        service.RunAllAsyncHandler = (_, progress, _) =>
+        {
+            progress?.Report(GitPullerProgressEvent.RunCompleted(new GitPullerRunResult
+            {
+                StartedAt = DateTimeOffset.UtcNow,
+                CompletedAt = DateTimeOffset.UtcNow,
+                RepositoryResults = [progressResult]
+            }));
+
+            return Task.FromResult(new GitPullerRunResult
+            {
+                StartedAt = DateTimeOffset.UtcNow,
+                CompletedAt = DateTimeOffset.UtcNow,
+                RepositoryResults = []
+            });
+        };
+
+        var viewModel = new MainShellViewModel(TestRoot, service);
+        await viewModel.RunSyncAsync();
+
+        var result = Assert.Single(viewModel.RepositoryResults);
+        Assert.Equal(repository.Path, result.Path);
+        Assert.Equal(1, viewModel.RunProgressCompleted);
+        Assert.Equal(1, viewModel.RunProgressTotal);
+        Assert.Equal("1 of 1 repositories completed", viewModel.RunProgressText);
+    }
+
     private static MainShellViewModel CreateViewModel(params RepositoryResultViewModel[] results)
     {
         return new MainShellViewModel(
@@ -405,6 +516,9 @@ public sealed class MainShellViewModelTests
         private readonly GitPullerLibraryLoadResult loadResult;
         private readonly TaskCompletionSource firstRepositoryCompletion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int loadCallCount;
+        private int runAllCallCount;
+        private int retryCallCount;
 
         public FakeGitPullerSyncService(GitPullerLibraryLoadResult loadResult)
         {
@@ -414,6 +528,9 @@ public sealed class MainShellViewModelTests
         public Func<string, CancellationToken, Task<GitPullerLibraryLoadResult>>? LoadLibraryAsyncHandler { get; set; }
         public Func<GitPullerRunRequest, IProgress<GitPullerProgressEvent>?, CancellationToken, Task<GitPullerRunResult>>? RunAllAsyncHandler { get; set; }
         public Func<GitPullerRunRequest, string, IProgress<GitPullerProgressEvent>?, CancellationToken, Task<RepoResult>>? RetryRepositoryAsyncHandler { get; set; }
+        public int LoadCallCount => loadCallCount;
+        public int RunAllCallCount => runAllCallCount;
+        public int RetryCallCount => retryCallCount;
 
         public string GetDefaultLibraryRoot()
         {
@@ -422,6 +539,7 @@ public sealed class MainShellViewModelTests
 
         public Task<GitPullerLibraryLoadResult> LoadLibraryAsync(string libraryRoot, CancellationToken cancellationToken)
         {
+            Interlocked.Increment(ref loadCallCount);
             return LoadLibraryAsyncHandler?.Invoke(libraryRoot, cancellationToken)
                 ?? Task.FromResult(loadResult);
         }
@@ -431,6 +549,7 @@ public sealed class MainShellViewModelTests
             IProgress<GitPullerProgressEvent>? progress,
             CancellationToken cancellationToken)
         {
+            Interlocked.Increment(ref runAllCallCount);
             var trackingProgress = progress is null
                 ? null
                 : new TrackingProgress(progress, firstRepositoryCompletion);
@@ -444,6 +563,7 @@ public sealed class MainShellViewModelTests
             IProgress<GitPullerProgressEvent>? progress,
             CancellationToken cancellationToken)
         {
+            Interlocked.Increment(ref retryCallCount);
             return RetryRepositoryAsyncHandler?.Invoke(previousRunRequest, repoPath, progress, cancellationToken)
                 ?? Task.FromResult(new RepoResult { Path = repoPath, Name = Path.GetFileName(repoPath) });
         }
