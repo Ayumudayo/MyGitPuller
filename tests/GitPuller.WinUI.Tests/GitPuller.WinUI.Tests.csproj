@@ -20,5 +20,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\GitPuller.Core\GitPuller.Core.csproj" />
     <Compile Include="..\..\GitPuller.WinUI\ViewModels\*.cs" Link="ViewModels\%(Filename)%(Extension)" />
+    <Compile Include="..\..\GitPuller.WinUI\Services\*.cs" Link="Services\%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

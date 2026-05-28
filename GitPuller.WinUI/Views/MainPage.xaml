@@ -173,8 +173,8 @@
                                 DefaultLabelPosition="Right"
                                 IsOpen="False">
                                 <AppBarButton
-                                    Command="{x:Bind ViewModel.RefreshCommand}"
-                                    Label="Run all">
+                                    Command="{x:Bind ViewModel.RunSyncCommand}"
+                                    Label="{x:Bind ViewModel.RunSyncButtonText, Mode=OneWay}">
                                     <AppBarButton.Icon>
                                         <SymbolIcon Symbol="Refresh" />
                                     </AppBarButton.Icon>
@@ -241,6 +241,16 @@
 
                             <StackPanel Grid.Row="2" Spacing="8">
                                 <InfoBar
+                                    IsOpen="{x:Bind ViewModel.HasRunError, Mode=OneWay}"
+                                    Message="{x:Bind ViewModel.RunErrorMessage, Mode=OneWay}"
+                                    Severity="Error"
+                                    Title="Sync failed" />
+                                <InfoBar
+                                    IsOpen="{x:Bind ViewModel.HasRunInfoStatus, Mode=OneWay}"
+                                    Message="{x:Bind ViewModel.RunStatusMessage, Mode=OneWay}"
+                                    Severity="Informational"
+                                    Title="{x:Bind ViewModel.RunStatusTitle, Mode=OneWay}" />
+                                <InfoBar
                                     IsOpen="{x:Bind ViewModel.HasAttentionItems, Mode=OneWay}"
                                     Message="{x:Bind ViewModel.AttentionSummary, Mode=OneWay}"
                                     Severity="Warning"
@@ -248,6 +258,13 @@
                                 <TextBlock
                                     Style="{StaticResource CaptionTextBlockStyle}"
                                     Text="{x:Bind ViewModel.ResultSummary, Mode=OneWay}" />
+                                <TextBlock
+                                    FontWeight="SemiBold"
+                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                    Text="{x:Bind ViewModel.RunProgressText, Mode=OneWay}" />
+                                <TextBlock
+                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                    Text="{x:Bind ViewModel.CurrentProgressMessage, Mode=OneWay}" />
                                 <ToggleSwitch
                                     AutomationProperties.Name="Clean repositories"
                                     Header="Clean repositories"
@@ -255,6 +272,7 @@
                                     OffContent="Hidden"
                                     OnContent="Shown" />
                                 <ProgressBar
+                                    IsIndeterminate="{x:Bind ViewModel.IsRunProgressIndeterminate, Mode=OneWay}"
                                     Maximum="100"
                                     Value="{x:Bind ViewModel.RunProgress, Mode=OneWay}" />
                             </StackPanel>
@@ -295,11 +313,13 @@
                                                 FontWeight="SemiBold"
                                                 Style="{StaticResource GitPullerWrappingTextBlockStyle}"
                                                 Text="{x:Bind Name}" />
-                                            <Button
+                                            <TextBlock
                                                 Grid.Row="0"
                                                 Grid.Column="2"
-                                                Content="{x:Bind RetryButtonText}"
-                                                IsEnabled="{x:Bind CanRetry}" />
+                                                Style="{StaticResource CaptionTextBlockStyle}"
+                                                Text="{x:Bind RetryPolicyText}"
+                                                TextAlignment="Right"
+                                                TextWrapping="WrapWholeWords" />
 
                                             <TextBlock
                                                 Grid.Row="1"
@@ -366,13 +386,45 @@
                                     </StackPanel>
 
                                     <StackPanel Spacing="4">
-                                        <TextBlock FontWeight="SemiBold" Text="Diagnostic" />
+                                        <TextBlock FontWeight="SemiBold" Text="Diagnostic title" />
+                                        <TextBlock
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{x:Bind ViewModel.SelectedResultDiagnosticTitle, Mode=OneWay}" />
+                                        <TextBlock FontWeight="SemiBold" Text="Explanation" />
                                         <TextBlock
                                             Style="{StaticResource GitPullerWrappingTextBlockStyle}"
                                             Text="{x:Bind ViewModel.SelectedResultDiagnosticExplanation, Mode=OneWay}" />
+                                        <TextBlock FontWeight="SemiBold" Text="Suggested action" />
                                         <TextBlock
                                             Style="{StaticResource GitPullerWrappingTextBlockStyle}"
                                             Text="{x:Bind ViewModel.SelectedResultSuggestedAction, Mode=OneWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock FontWeight="SemiBold" Text="Retry policy" />
+                                        <TextBlock
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{x:Bind ViewModel.SelectedResultRetryPolicyText, Mode=OneWay}" />
+                                        <TextBlock
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{x:Bind ViewModel.SelectedResultRetryPolicyDescription, Mode=OneWay}" />
+                                        <StackPanel
+                                            Orientation="Horizontal"
+                                            Spacing="8">
+                                            <Button
+                                                x:Name="PrimaryRetrySelectedDetailButton"
+                                                Command="{x:Bind ViewModel.RetrySelectedCommand}"
+                                                Content="{x:Bind ViewModel.SelectedResultRetryButtonText, Mode=OneWay}"
+                                                IsEnabled="{x:Bind ViewModel.SelectedResultCanRetry, Mode=OneWay}"
+                                                Style="{StaticResource AccentButtonStyle}"
+                                                Visibility="Collapsed" />
+                                            <Button
+                                                x:Name="SecondaryRetrySelectedDetailButton"
+                                                Command="{x:Bind ViewModel.RetrySelectedCommand}"
+                                                Content="{x:Bind ViewModel.SelectedResultRetryButtonText, Mode=OneWay}"
+                                                IsEnabled="{x:Bind ViewModel.SelectedResultCanRetry, Mode=OneWay}"
+                                                Visibility="Collapsed" />
+                                        </StackPanel>
                                     </StackPanel>
 
                                     <Expander Header="Evidence" IsExpanded="True">
@@ -389,7 +441,7 @@
                                             Text="{x:Bind ViewModel.SelectedResultRelatedCommand, Mode=OneWay}" />
                                     </Expander>
 
-                                    <Expander Header="Logs">
+                                    <Expander Header="Relevant log output">
                                         <ItemsControl ItemsSource="{x:Bind ViewModel.SelectedResultLogLines, Mode=OneWay}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>

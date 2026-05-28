@@ -48,8 +48,37 @@ public sealed class RepositoryResultViewModel
     public RetryActionState RetryActionState => RetryPolicyPresentation.GetRetryActionState(Diagnostic);
     public bool CanRetry => RetryActionState != RetryActionState.Disabled;
     public bool IsRetryPrimary => RetryActionState == RetryActionState.EnabledPrimary;
+    public bool IsRetrySecondary => RetryActionState == RetryActionState.EnabledSecondary;
     public string StatusText => Status.ToString();
-    public string RetryButtonText => IsRetryPrimary ? "Retry now" : "Retry";
+    public string RetryButtonText => Diagnostic?.RetryPolicy switch
+    {
+        RetryPolicy.Recommended => "Retry now",
+        RetryPolicy.PossibleAfterCheck => "Retry after check",
+        RetryPolicy.BlockedUntilAction => "Retry blocked",
+        RetryPolicy.Unknown => "Retry",
+        _ => "Retry"
+    };
+
+    public string RetryPolicyText => Diagnostic?.RetryPolicy switch
+    {
+        RetryPolicy.Recommended => "Retry recommended",
+        RetryPolicy.PossibleAfterCheck => "Retry possible after checking",
+        RetryPolicy.BlockedUntilAction => "Blocked until action is taken",
+        RetryPolicy.Unknown => "Retry state unknown",
+        RetryPolicy.NotApplicable => "No retry needed",
+        _ => "No retry information"
+    };
+
+    public string RetryPolicyDescription => Diagnostic?.RetryPolicy switch
+    {
+        RetryPolicy.Recommended => "This failure is safe to retry from the GUI.",
+        RetryPolicy.PossibleAfterCheck => "Retry is available, but inspect the diagnostic evidence first.",
+        RetryPolicy.BlockedUntilAction => "Retry stays disabled until the blocking repository or remote condition is fixed.",
+        RetryPolicy.Unknown => "Retry is available after reviewing the log output.",
+        RetryPolicy.NotApplicable => "This result does not need a retry action.",
+        _ => "No retry guidance was recorded."
+    };
+
     public string ElapsedText => Elapsed.TotalSeconds < 1
         ? "under 1s"
         : $"{Elapsed.TotalSeconds:0.0}s";
@@ -65,6 +94,7 @@ public sealed class RepositoryResultViewModel
     };
 
     public string DiagnosticExplanation => Diagnostic?.Explanation ?? "No diagnostic details are available.";
+    public string DiagnosticTitle => Diagnostic?.Title ?? Summary;
     public string SuggestedAction => Diagnostic?.SuggestedAction ?? "No action is required.";
     public string Evidence => Diagnostic?.Evidence ?? "No diagnostic evidence was recorded.";
     public string RelatedCommand => Diagnostic?.RelatedCommand ?? "No related command was recorded.";
