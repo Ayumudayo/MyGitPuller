@@ -96,14 +96,17 @@ public sealed class LibraryConfigStore
         {
             LibraryRoot = Path.GetFullPath(libraryRoot),
             Categories = (config.Categories ?? [])
+                .OfType<string>()
                 .Where(category => !string.IsNullOrWhiteSpace(category))
                 .Select(category => category.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList(),
             Repositories = (config.Repositories ?? [])
+                .OfType<LibraryRepositoryConfig>()
                 .Select(NormalizeRepository)
                 .ToList(),
             RemovedRepositories = (config.RemovedRepositories ?? [])
+                .OfType<RemovedRepositoryRecord>()
                 .Select(NormalizeRemovedRepository)
                 .ToList(),
             DefaultOptions = config.DefaultOptions ?? new GitPullerOptions()

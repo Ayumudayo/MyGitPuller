@@ -170,6 +170,28 @@ public sealed class RepositoryManagementTests : IDisposable
     }
 
     [Fact]
+    public void RemoveRepository_SanitizesNullEntriesBeforeFilesystemMutation()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var repositoryPath = CreateRepositoryDirectory(libraryRoot, "Plugins", "RepoA");
+        var repository = new RepositoryDescriptor(repositoryPath, "RepoA", "Plugins", "git@github.com:example/repo-a.git");
+        var config = new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Repositories = [null!],
+            RemovedRepositories = [null!]
+        };
+        var service = new RepositoryRemovalService();
+
+        var removed = service.RemoveRepository(config, repository);
+
+        Assert.False(Directory.Exists(repositoryPath));
+        Assert.True(Directory.Exists(removed.RemovedPath));
+        Assert.Equal(removed, Assert.Single(config.RemovedRepositories));
+        Assert.Empty(config.Repositories);
+    }
+
+    [Fact]
     public void RestoreRepositoryAs_InitializesNullCollectionsBeforeFilesystemMutation()
     {
         var libraryRoot = Path.Combine(tempRoot, "Library");
@@ -207,6 +229,38 @@ public sealed class RepositoryManagementTests : IDisposable
     }
 
     [Fact]
+    public void RestoreRepositoryAs_SanitizesNullEntriesBeforeFilesystemMutation()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var removedPath = CreateRepositoryDirectory(Path.Combine(libraryRoot, ".mygitpuller", "removed"), "Plugins", "RepoA");
+        var removed = new RemovedRepositoryRecord
+        {
+            Name = "RepoA",
+            OriginalPath = Path.Combine(libraryRoot, "Plugins", "RepoA"),
+            RemovedPath = removedPath,
+            Category = "Plugins",
+            RemoteUrl = "git@github.com:example/repo-a.git",
+            RemovedAt = DateTimeOffset.UtcNow
+        };
+        var config = new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Repositories = [null!],
+            RemovedRepositories = [null!, removed]
+        };
+        var service = new RepositoryRemovalService();
+        var destinationPath = Path.Combine(libraryRoot, "Archive", "RepoA");
+
+        var restored = service.RestoreRepositoryAs(config, removed, "Archive", destinationPath);
+
+        Assert.True(Directory.Exists(destinationPath));
+        Assert.False(Directory.Exists(removedPath));
+        var active = Assert.Single(config.Repositories);
+        Assert.Equal(restored.Path, active.Path);
+        Assert.Empty(config.RemovedRepositories);
+    }
+
+    [Fact]
     public void PermanentlyDelete_InitializesNullRemovedRepositoriesBeforeFilesystemMutation()
     {
         var libraryRoot = Path.Combine(tempRoot, "Library");
@@ -231,6 +285,33 @@ public sealed class RepositoryManagementTests : IDisposable
 
         Assert.False(Directory.Exists(removedPath));
         Assert.NotNull(config.RemovedRepositories);
+        Assert.Empty(config.RemovedRepositories);
+    }
+
+    [Fact]
+    public void PermanentlyDelete_SanitizesNullEntriesBeforeFilesystemMutation()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var removedPath = CreateRepositoryDirectory(Path.Combine(libraryRoot, ".mygitpuller", "removed"), "Plugins", "RepoA");
+        var removed = new RemovedRepositoryRecord
+        {
+            Name = "RepoA",
+            OriginalPath = Path.Combine(libraryRoot, "Plugins", "RepoA"),
+            RemovedPath = removedPath,
+            Category = "Plugins",
+            RemoteUrl = "git@github.com:example/repo-a.git",
+            RemovedAt = DateTimeOffset.UtcNow
+        };
+        var config = new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            RemovedRepositories = [null!, removed]
+        };
+        var service = new RepositoryRemovalService();
+
+        service.PermanentlyDelete(config, removed);
+
+        Assert.False(Directory.Exists(removedPath));
         Assert.Empty(config.RemovedRepositories);
     }
 

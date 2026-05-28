@@ -160,6 +160,54 @@ public sealed class LibraryConfigStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task LoadAsync_IgnoresNullRepositoryEntriesWhilePreservingValidEntries()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        Directory.CreateDirectory(Path.Combine(libraryRoot, ".mygitpuller"));
+
+        var configPath = LibraryConfigStore.GetDefaultConfigPath(libraryRoot);
+        var json = """
+            {
+              "libraryRoot": "LIBRARY_ROOT",
+              "repositories": [
+                null,
+                {
+                  "name": "RepoA",
+                  "path": "REPO_PATH",
+                  "category": "Plugins",
+                  "remoteUrl": "https://example.invalid/repo-a.git"
+                }
+              ],
+              "removedRepositories": [
+                null,
+                {
+                  "name": "RepoB",
+                  "originalPath": "ORIGINAL_PATH",
+                  "removedPath": "REMOVED_PATH",
+                  "category": "Archive",
+                  "remoteUrl": "https://example.invalid/repo-b.git",
+                  "removedAt": "2026-05-28T01:02:03+09:00"
+                }
+              ]
+            }
+            """
+            .Replace("LIBRARY_ROOT", libraryRoot.Replace("\\", "\\\\"))
+            .Replace("REPO_PATH", Path.Combine(libraryRoot, "Plugins", "RepoA").Replace("\\", "\\\\"))
+            .Replace("ORIGINAL_PATH", Path.Combine(libraryRoot, "Archive", "RepoB").Replace("\\", "\\\\"))
+            .Replace("REMOVED_PATH", Path.Combine(libraryRoot, ".mygitpuller", "removed", "Archive", "RepoB").Replace("\\", "\\\\"));
+
+        await File.WriteAllTextAsync(configPath, json, Encoding.UTF8);
+
+        var store = new LibraryConfigStore();
+        var config = await store.LoadAsync(libraryRoot, CancellationToken.None);
+
+        var repository = Assert.Single(config.Repositories);
+        Assert.Equal("RepoA", repository.Name);
+        var removed = Assert.Single(config.RemovedRepositories);
+        Assert.Equal("RepoB", removed.Name);
+    }
+
+    [Fact]
     public void GetDefaultConfigPath_ReturnsLibraryScopedConfigLocation()
     {
         var libraryRoot = Path.Combine(tempRoot, "Library");

@@ -188,6 +188,10 @@ public sealed class RepositoryRemovalService
         config.Categories ??= [];
         config.Repositories ??= [];
         config.RemovedRepositories ??= [];
+
+        config.Categories.RemoveAll(static category => category is null);
+        config.Repositories.RemoveAll(static repository => repository is null);
+        config.RemovedRepositories.RemoveAll(static removedRepository => removedRepository is null);
     }
 
     private static string NormalizeCategory(string? category)
