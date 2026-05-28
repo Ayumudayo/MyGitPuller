@@ -1,4 +1,7 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -11,16 +14,24 @@ namespace GitPuller
         static int MaxDegreeOfParallelism = 6;
         const int DefaultMaxDegreeOfParallelism = 6;
         static bool InitMissingSubmodules = true;
-        static bool ForceSync = false;
-        static bool CleanUntracked = false;
+        static bool ForceSync = true;
+        static bool CleanUntracked = true;
         static bool ForceRescan = false;
         static bool PullFfOnly = true;
+        static bool SyncAllBranches = true;
+        static bool StaleGitLockCleanup = true;
+        static bool VerboseReport = false;
         static bool ShowHelp = false;
         static string RootDir = AppContext.BaseDirectory;
         const string CacheFileName = ".git_repo_cache.json";
+        const string LatestReportFileName = "git_update_report.md";
         static int GitTimeout = 60000; // Default 60s
         const int DefaultGitTimeoutSeconds = 60;
         const int MinGitTimeoutSeconds = 1;
+        const int GitLockRetryCount = 3;
+        const int GitLockRetryDelayMs = 1000;
+        static TimeSpan StaleGitLockAge = TimeSpan.FromMinutes(10);
+        static readonly string RunId = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
 
         // Some environments (CI/redirected output) don't support cursor operations.
         static bool SupportsCursorControl = true;
@@ -31,6 +42,8 @@ namespace GitPuller
         static int SuccessCount = 0;
         static int FailCount = 0;
         static int GlobalNewCommitsCount = 0;
+        static readonly ConcurrentDictionary<int, int> WorkerSlotsByThreadId = new();
+        static int NextWorkerSlot = 0;
 
         // Tree characters
         const string TreeVert = "│ ";
@@ -64,6 +77,10 @@ namespace GitPuller
                 if (!ValidateAndNormalizeSettings())
                     return 1;
 
+                using var rootLease = TryAcquireRootMutex();
+                if (rootLease == null)
+                    return 1;
+
                 List<string> repos;
                 if (!ForceRescan && TryLoadCache(out repos))
                 {
@@ -72,7 +89,7 @@ namespace GitPuller
                 else
                 {
                     Console.WriteLine($"Scanning {RootDir} for git repositories...");
-                    repos = FindGitRepos(RootDir);
+                    repos = NormalizeRepoList(FindGitRepos(RootDir));
                     SaveCache(repos);
                 }
 
@@ -96,7 +113,16 @@ namespace GitPuller
 
                 Parallel.ForEach(repos, options, (repo) =>
                 {
+                    int workerSlot = GetWorkerSlot();
+                    var repoStartedAt = DateTimeOffset.Now;
+                    var repoStopwatch = Stopwatch.StartNew();
                     var res = ProcessRepo(repo);
+                    repoStopwatch.Stop();
+
+                    res.WorkerSlot = workerSlot;
+                    res.StartedAt = repoStartedAt;
+                    res.CompletedAt = DateTimeOffset.Now;
+                    res.Elapsed = repoStopwatch.Elapsed;
                     
                     lock (ConsoleLock)
                     {
@@ -122,7 +148,7 @@ namespace GitPuller
                 sw.Stop();
                 ClearCurrentLine(); // Clear final progress bar
                 WriteSummary(results, sw.Elapsed);
-                return 0;
+                return FailCount > 0 ? 1 : 0;
             }
             catch (Exception ex)
             {
@@ -176,17 +202,46 @@ namespace GitPuller
                 }
                 else if (args[i] == "--force-sync")
                 {
-                    // Destructive: can discard local branch/worktree state to match remote.
+                    // Default behavior; kept for compatibility with older scripts.
                     ForceSync = true;
                 }
                 else if (args[i] == "--clean")
                 {
-                    // Destructive: remove untracked files/dirs (git clean -fdx).
+                    // Default behavior; kept for compatibility with older scripts.
                     CleanUntracked = true;
                 }
                 else if (args[i] == "--no-pull")
                 {
                     PullFfOnly = false;
+                }
+                else if (args[i] == "--all-branches")
+                {
+                    SyncAllBranches = true;
+                }
+                else if (args[i] == "--current-branch-only")
+                {
+                    SyncAllBranches = false;
+                }
+                else if (args[i] == "--stale-lock-minutes")
+                {
+                    if (!TryReadOptionValue(args, ref i, "--stale-lock-minutes", out var staleMinutesRaw))
+                        continue;
+
+                    if (!double.TryParse(staleMinutesRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var minutes) || minutes < 0)
+                    {
+                        Console.WriteLine($"Warning: Invalid stale lock age '{staleMinutesRaw}'. Keeping {StaleGitLockAge.TotalMinutes:F0} minutes.");
+                        continue;
+                    }
+
+                    StaleGitLockAge = TimeSpan.FromMinutes(minutes);
+                }
+                else if (args[i] == "--no-stale-lock-cleanup")
+                {
+                    StaleGitLockCleanup = false;
+                }
+                else if (args[i] == "--verbose-report")
+                {
+                    VerboseReport = true;
                 }
                 else if (args[i] == "--root")
                 {
@@ -238,8 +293,13 @@ namespace GitPuller
             Console.WriteLine("  --init-missing-submodules   Initialize missing submodules when updating");
             Console.WriteLine("  --no-init-submodules        Do not initialize new submodules");
             Console.WriteLine("  --no-pull                   Skip git pull (fetch/report only)");
-            Console.WriteLine("  --force-sync                Force sync to origin/HEAD (destructive)");
-            Console.WriteLine("  --clean                     With --force-sync, remove untracked files (destructive)");
+            Console.WriteLine("  --all-branches              Mirror all remote branches into local tracking branches (default)");
+            Console.WriteLine("  --current-branch-only       Only force-sync origin/HEAD worktree, not all local branches");
+            Console.WriteLine("  --force-sync                Force sync local state to remotes (default)");
+            Console.WriteLine("  --clean                     Remove untracked/ignored files during force sync (default)");
+            Console.WriteLine("  --stale-lock-minutes <num>  Delete Git lock files older than this many minutes (default: 10)");
+            Console.WriteLine("  --no-stale-lock-cleanup     Do not delete stale Git lock files");
+            Console.WriteLine("  --verbose-report            Include per-command operation details in the report");
             Console.WriteLine("  --root <path>               Root directory to scan");
             Console.WriteLine($"  -t, --timeout <seconds>     Per-git-command timeout in seconds (default: {DefaultGitTimeoutSeconds})");
             Console.WriteLine("  -h, --help                  Show this help and exit");
@@ -311,6 +371,11 @@ namespace GitPuller
                 || arg == "--force-sync"
                 || arg == "--clean"
                 || arg == "--no-pull"
+                || arg == "--all-branches"
+                || arg == "--current-branch-only"
+                || arg == "--stale-lock-minutes"
+                || arg == "--no-stale-lock-cleanup"
+                || arg == "--verbose-report"
                 || arg == "--root"
                 || arg == "-t"
                 || arg == "--timeout"
@@ -330,17 +395,52 @@ namespace GitPuller
                 var cached = JsonSerializer.Deserialize<List<string>>(json);
                 if (cached == null) return false;
 
-                // Verify paths exist
-                var valid = cached.Where(p => IsGitRepoRoot(p, out bool isSubmodule) && !isSubmodule).ToList();
-                if (valid.Count != cached.Count) return false; // Invalidate if any missing
+                var valid = new List<string>();
+                foreach (var path in cached)
+                {
+                    if (!IsGitRepoRoot(path, out bool isSubmodule) || isSubmodule)
+                        return false; // Invalidate if any missing
 
-                repos = valid;
+                    valid.Add(path);
+                }
+
+                repos = NormalizeRepoList(valid);
                 return true;
             }
             catch
             {
                 return false;
             }
+        }
+
+        static List<string> NormalizeRepoList(IEnumerable<string> repoPaths)
+        {
+            var repos = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var repoPath in repoPaths)
+            {
+                if (string.IsNullOrWhiteSpace(repoPath))
+                    continue;
+
+                string normalized;
+                try
+                {
+                    normalized = Path.GetFullPath(repoPath)
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                }
+                catch
+                {
+                    normalized = repoPath.Trim()
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                }
+
+                if (seen.Add(normalized))
+                    repos.Add(normalized);
+            }
+
+            repos.Sort(StringComparer.OrdinalIgnoreCase);
+            return repos;
         }
 
         static void SaveCache(List<string> repos)
@@ -383,6 +483,12 @@ namespace GitPuller
             string status = $"\r[{bar}] {ProcessedCount}/{TotalRepos} ({pct:P0})";
 
             Console.Write(status);
+        }
+
+        static int GetWorkerSlot()
+        {
+            int threadId = Environment.CurrentManagedThreadId;
+            return WorkerSlotsByThreadId.GetOrAdd(threadId, _ => Interlocked.Increment(ref NextWorkerSlot));
         }
 
         static void ClearCurrentLine()
@@ -436,6 +542,8 @@ namespace GitPuller
                             continue;
                         if (IsIgnoredDirName(childName))
                             continue;
+                        if (IsReparsePoint(child))
+                            continue;
                         pending.Push(child);
                     }
                 }
@@ -447,6 +555,18 @@ namespace GitPuller
 
             repos.Sort(StringComparer.OrdinalIgnoreCase);
             return repos;
+        }
+
+        static bool IsReparsePoint(string path)
+        {
+            try
+            {
+                return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+            }
+            catch
+            {
+                return true;
+            }
         }
 
         static bool IsIgnoredDirName(string? name)
@@ -500,6 +620,238 @@ namespace GitPuller
             }
         }
 
+        static RepoMutexLease? TryAcquireRepoMutex(string repoPath, RepoResult result)
+        {
+            string normalized;
+            try
+            {
+                normalized = GetRepoMutexIdentityPath(repoPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    .ToUpperInvariant();
+            }
+            catch
+            {
+                normalized = repoPath.ToUpperInvariant();
+            }
+
+            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)));
+            var mutexName = $"MyGitPuller_{hash}";
+            var mutex = new Mutex(false, mutexName);
+
+            try
+            {
+                if (!mutex.WaitOne(GitTimeout))
+                {
+                    mutex.Dispose();
+                    result.Failed = true;
+                    result.Logs.Add(new LogItem
+                    {
+                        Text = $"Timed out waiting for another GitPuller worker using this repository: {repoPath}",
+                        IsError = true
+                    });
+                    return null;
+                }
+            }
+            catch (AbandonedMutexException)
+            {
+                result.Logs.Add(new LogItem
+                {
+                    Text = "Recovered an abandoned GitPuller repository mutex; continuing after previous process exit.",
+                    IsWarning = true
+                });
+            }
+            catch (Exception ex)
+            {
+                mutex.Dispose();
+                result.Failed = true;
+                result.Logs.Add(new LogItem
+                {
+                    Text = $"Could not acquire repository mutex: {ex.Message}",
+                    IsError = true
+                });
+                return null;
+            }
+
+            return new RepoMutexLease(mutex);
+        }
+
+        static RepoMutexLease? TryAcquireRootMutex()
+        {
+            var normalized = RootDir
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .ToUpperInvariant();
+            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)));
+            var mutexName = $"MyGitPuller_Root_{hash}";
+            var mutex = new Mutex(false, mutexName);
+
+            try
+            {
+                if (!mutex.WaitOne(GitTimeout))
+                {
+                    mutex.Dispose();
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"Another GitPuller instance is already processing this root: {RootDir}");
+                    Console.ResetColor();
+                    return null;
+                }
+            }
+            catch (AbandonedMutexException)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("Recovered an abandoned GitPuller root mutex; continuing after previous process exit.");
+                Console.ResetColor();
+            }
+            catch (Exception ex)
+            {
+                mutex.Dispose();
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Could not acquire root mutex: {ex.Message}");
+                Console.ResetColor();
+                return null;
+            }
+
+            return new RepoMutexLease(mutex);
+        }
+
+        static string GetRepoMutexIdentityPath(string repoPath)
+        {
+            var resolvedGitdir = ResolveGitDirPath(repoPath);
+            var normalized = resolvedGitdir.Replace('/', Path.DirectorySeparatorChar);
+            var worktreesMarker = string.Join(Path.DirectorySeparatorChar.ToString(), new[] { ".git", "worktrees" });
+            var worktreesIndex = normalized.IndexOf(worktreesMarker, StringComparison.OrdinalIgnoreCase);
+            if (worktreesIndex >= 0)
+                return normalized.Substring(0, worktreesIndex + ".git".Length);
+
+            return normalized;
+        }
+
+        static string ResolveGitDirPath(string repoPath)
+        {
+            var gitPath = Path.Combine(repoPath, ".git");
+            if (Directory.Exists(gitPath))
+                return Path.GetFullPath(gitPath);
+
+            if (!File.Exists(gitPath))
+                return Path.GetFullPath(repoPath);
+
+            var text = File.ReadAllText(gitPath, Encoding.UTF8);
+            var firstLine = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            const string prefix = "gitdir:";
+            if (firstLine == null || !firstLine.TrimStart().StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return Path.GetFullPath(repoPath);
+
+            var gitdir = firstLine.Substring(firstLine.IndexOf(':') + 1).Trim();
+            return Path.IsPathRooted(gitdir)
+                ? Path.GetFullPath(gitdir)
+                : Path.GetFullPath(Path.Combine(repoPath, gitdir));
+        }
+
+        static void TryCleanupStaleGitLocks(string repoPath, RepoResult? result)
+        {
+            if (!StaleGitLockCleanup)
+                return;
+
+            foreach (var lockFile in EnumerateGitLockFiles(repoPath))
+            {
+                try
+                {
+                    var info = new FileInfo(lockFile);
+                    if (!info.Exists)
+                        continue;
+
+                    var age = DateTime.UtcNow - info.LastWriteTimeUtc;
+                    if (age < StaleGitLockAge)
+                        continue;
+
+                    info.Delete();
+                    result?.Logs.Add(new LogItem
+                    {
+                        Text = $"Removed stale Git lock file ({age.TotalMinutes:F1} min old): {lockFile}",
+                        IsWarning = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    result?.Logs.Add(new LogItem
+                    {
+                        Text = $"Could not remove stale Git lock file '{lockFile}': {ex.Message}",
+                        IsWarning = true
+                    });
+                }
+            }
+        }
+
+        static IEnumerable<string> EnumerateGitLockFiles(string repoPath)
+        {
+            var dirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            string gitDir;
+            try
+            {
+                gitDir = ResolveGitDirPath(repoPath);
+            }
+            catch
+            {
+                yield break;
+            }
+
+            if (Directory.Exists(gitDir))
+                dirs.Add(gitDir);
+
+            var commonDirFile = Path.Combine(gitDir, "commondir");
+            if (File.Exists(commonDirFile))
+            {
+                try
+                {
+                    var commonDirRaw = File.ReadAllText(commonDirFile, Encoding.UTF8).Trim();
+                    if (!string.IsNullOrWhiteSpace(commonDirRaw))
+                    {
+                        var commonDir = Path.IsPathRooted(commonDirRaw)
+                            ? commonDirRaw
+                            : Path.GetFullPath(Path.Combine(gitDir, commonDirRaw));
+                        if (Directory.Exists(commonDir))
+                            dirs.Add(commonDir);
+                    }
+                }
+                catch
+                {
+                    // Continue with the per-worktree gitdir.
+                }
+            }
+
+            foreach (var dir in dirs)
+            {
+                foreach (var file in SafeEnumerateFiles(dir, "*.lock", SearchOption.TopDirectoryOnly))
+                    yield return file;
+
+                foreach (var refsDirName in new[] { "refs", Path.Combine("logs", "refs") })
+                {
+                    var refsDir = Path.Combine(dir, refsDirName);
+                    foreach (var file in SafeEnumerateFiles(refsDir, "*.lock", SearchOption.AllDirectories))
+                        yield return file;
+                }
+            }
+        }
+
+        static IEnumerable<string> SafeEnumerateFiles(string path, string pattern, SearchOption searchOption)
+        {
+            if (!Directory.Exists(path))
+                yield break;
+
+            string[] files;
+            try
+            {
+                files = Directory.GetFiles(path, pattern, searchOption);
+            }
+            catch
+            {
+                yield break;
+            }
+
+            foreach (var file in files)
+                yield return file;
+        }
+
         static RepoResult ProcessRepo(string repoPath)
         {
             var result = new RepoResult { Path = repoPath, Name = Path.GetFileName(repoPath) };
@@ -511,7 +863,13 @@ namespace GitPuller
                 return result;
             }
 
-            var beforeRefs = GetRemoteRefs(repoPath);
+            using var repoLease = TryAcquireRepoMutex(repoPath, result);
+            if (repoLease == null)
+                return result;
+
+            TryCleanupStaleGitLocks(repoPath, result);
+
+            var beforeRefs = GetRemoteRefs(repoPath, result);
             
             // Retry logic for fetch
             int retries = 3;
@@ -520,13 +878,13 @@ namespace GitPuller
             
             while (retries > 0)
             {
-                (rc, outText) = RunGitWithSshToHttpsFallback(repoPath, "fetch --all --prune --tags --force");
+                (rc, outText) = RunGitWithSshToHttpsFallback(repoPath, "fetch --all --prune --prune-tags --tags --force", result);
                 if (rc == 0) break;
                 
                 // If failed, try to prune explicit remote first to clear bad refs
                 if (retries < 3) // Don't do it strictly on first attempt if we want, but valid to do it if failed
                 {
-                     RunGitWithSshToHttpsFallback(repoPath, "remote prune origin");
+                     RunGitWithSshToHttpsFallback(repoPath, "remote prune origin", result);
                 }
 
                 retries--;
@@ -540,7 +898,9 @@ namespace GitPuller
                 return result;
             }
 
-            var afterRefs = GetRemoteRefs(repoPath);
+            TryFetchLfsObjects(repoPath, result);
+
+            var afterRefs = GetRemoteRefs(repoPath, result);
             var seenCommits = new HashSet<string>();
 
             foreach (var kvp in afterRefs)
@@ -554,7 +914,7 @@ namespace GitPuller
                 if (!beforeRefs.TryGetValue(refName, out var oldSha))
                 {
                     // New branch
-                    var (rcLog, logOut) = RunGit(repoPath, $"log -1 --format=\"%h %s (%an)\" {newSha}");
+                    var (rcLog, logOut) = RunGit(repoPath, $"log -1 --format=\"%h %s (%an)\" {newSha}", result);
                     if (rcLog == 0 && !string.IsNullOrWhiteSpace(logOut))
                     {
                         ParseAndAddCommits(result, logOut, seenCommits);
@@ -563,7 +923,7 @@ namespace GitPuller
                 else if (oldSha != newSha)
                 {
                     // Updated branch
-                    var (rcLog, logOut) = RunGit(repoPath, $"log --format=\"%h %s (%an)\" {oldSha}..{newSha}");
+                    var (rcLog, logOut) = RunGit(repoPath, $"log --format=\"%h %s (%an)\" {oldSha}..{newSha}", result);
                     if (rcLog == 0 && !string.IsNullOrWhiteSpace(logOut))
                     {
                         ParseAndAddCommits(result, logOut, seenCommits);
@@ -574,14 +934,27 @@ namespace GitPuller
             // Update the checked-out branch/worktree.
             if (PullFfOnly)
             {
-                TrySyncWorkingTree(repoPath, result);
+                if (ForceSync)
+                {
+                    TrySyncWorkingTree(repoPath, result);
+
+                    if (SyncAllBranches)
+                        TrySyncLocalBranches(repoPath, afterRefs, result);
+                }
+                else
+                {
+                    if (SyncAllBranches)
+                        TrySyncLocalBranches(repoPath, afterRefs, result);
+
+                    TrySyncWorkingTree(repoPath, result);
+                }
             }
 
             // Submodules: keep superproject-recorded SHAs in sync.
             // Note: this does *not* treat submodules as separate repos for scanning; it updates them via the parent.
             TryUpdateSubmodules(repoPath, result);
 
-            var (rcMod, outMod) = RunGit(repoPath, "submodule status --recursive");
+            var (rcMod, outMod) = RunGit(repoPath, "submodule status --recursive", result);
             if (rcMod == 0)
             {
                 using (var reader = new StringReader(outMod))
@@ -604,12 +977,275 @@ namespace GitPuller
             return result;
         }
 
+        static void TrySyncLocalBranches(string repoPath, Dictionary<string, string> remoteRefs, RepoResult result)
+        {
+            var currentBranch = GetCurrentBranch(repoPath);
+            var remoteLocalBranchNames = new HashSet<string>(StringComparer.Ordinal);
+            var refCommands = new List<string>();
+            var newlyCreatedBranches = new List<RemoteBranchRef>();
+
+            foreach (var remoteBranch in GetRemoteBranches(remoteRefs))
+            {
+                var localRef = $"refs/heads/{remoteBranch.LocalBranchName}";
+
+                if (!IsSafeRefName(remoteBranch.LocalBranchName))
+                {
+                    result.Logs.Add(new LogItem
+                    {
+                        Text = $"Skipped remote branch with unsafe local branch name: {remoteBranch.RemoteShortName}",
+                        IsWarning = true
+                    });
+                    continue;
+                }
+
+                remoteLocalBranchNames.Add(remoteBranch.LocalBranchName);
+
+                if (string.Equals(currentBranch, remoteBranch.LocalBranchName, StringComparison.Ordinal))
+                {
+                    EnsureBranchTracksRemote(repoPath, remoteBranch.LocalBranchName, remoteBranch.RemoteShortName, result);
+                    continue;
+                }
+
+                if (!TryGetRefSha(repoPath, localRef, out var localSha))
+                {
+                    refCommands.Add($"create {localRef} {remoteBranch.Sha}");
+                    newlyCreatedBranches.Add(remoteBranch);
+                    continue;
+                }
+
+                if (string.Equals(localSha, remoteBranch.Sha, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (ForceSync)
+                {
+                    refCommands.Add($"update {localRef} {remoteBranch.Sha}");
+                    continue;
+                }
+
+                var (rcAncestor, _) = RunGit(repoPath, $"merge-base --is-ancestor {localSha} {remoteBranch.Sha}", result);
+                if (rcAncestor == 0)
+                {
+                    FastForwardLocalBranch(repoPath, localRef, localSha, remoteBranch.Sha, result);
+                }
+                else
+                {
+                    result.Logs.Add(new LogItem
+                    {
+                        Text = $"Local branch '{remoteBranch.LocalBranchName}' diverged from '{remoteBranch.RemoteShortName}'. Kept local branch; remote-tracking ref is still backed up.",
+                        IsWarning = true
+                    });
+                }
+            }
+
+            if (ForceSync)
+                AddLocalBranchDeleteCommands(repoPath, remoteLocalBranchNames, refCommands, result);
+
+            ApplyRefUpdates(repoPath, refCommands, result);
+
+            foreach (var remoteBranch in newlyCreatedBranches)
+                EnsureBranchTracksRemote(repoPath, remoteBranch.LocalBranchName, remoteBranch.RemoteShortName, result);
+        }
+
+        static List<RemoteBranchRef> GetRemoteBranches(Dictionary<string, string> remoteRefs)
+        {
+            var branches = new List<RemoteBranchRef>();
+            const string prefix = "refs/remotes/";
+
+            foreach (var kvp in remoteRefs.OrderBy(x => x.Key, StringComparer.Ordinal))
+            {
+                var refName = kvp.Key;
+                if (!refName.StartsWith(prefix, StringComparison.Ordinal))
+                    continue;
+
+                var rest = refName.Substring(prefix.Length);
+                var slash = rest.IndexOf('/');
+                if (slash <= 0 || slash == rest.Length - 1)
+                    continue;
+
+                var remoteName = rest.Substring(0, slash);
+                var branchName = rest.Substring(slash + 1);
+                if (branchName.Equals("HEAD", StringComparison.Ordinal))
+                    continue;
+
+                var localBranchName = remoteName.Equals("origin", StringComparison.OrdinalIgnoreCase)
+                    ? branchName
+                    : $"{remoteName}/{branchName}";
+
+                branches.Add(new RemoteBranchRef
+                {
+                    RemoteName = remoteName,
+                    BranchName = branchName,
+                    LocalBranchName = localBranchName,
+                    RemoteShortName = $"{remoteName}/{branchName}",
+                    RemoteRefName = refName,
+                    Sha = kvp.Value
+                });
+            }
+
+            return branches;
+        }
+
+        static string? GetCurrentBranch(string repoPath)
+        {
+            var (rc, output) = RunGit(repoPath, "symbolic-ref --quiet --short HEAD");
+            if (rc != 0 || string.IsNullOrWhiteSpace(output))
+                return null;
+
+            return output.Trim();
+        }
+
+        static bool TryGetRefSha(string repoPath, string refName, out string sha)
+        {
+            sha = "";
+            var (rc, output) = RunGit(repoPath, $"rev-parse --verify --quiet {refName}");
+            if (rc != 0 || string.IsNullOrWhiteSpace(output))
+                return false;
+
+            sha = output.Trim();
+            return true;
+        }
+
+        static void EnsureBranchTracksRemote(string repoPath, string localBranchName, string remoteShortName, RepoResult result)
+        {
+            var (rcSet, outSet) = RunGit(repoPath, new[] { "branch", "--set-upstream-to", remoteShortName, localBranchName }, result);
+            if (rcSet != 0)
+            {
+                result.Logs.Add(new LogItem
+                {
+                    Text = $"Could not set upstream for current branch '{localBranchName}' to '{remoteShortName}':\n{outSet}",
+                    IsWarning = true
+                });
+            }
+        }
+
+        static void CreateLocalTrackingBranch(string repoPath, RemoteBranchRef remoteBranch, RepoResult result)
+        {
+            var (rcCreate, outCreate) = RunGit(repoPath, $"branch --track {remoteBranch.LocalBranchName} {remoteBranch.RemoteShortName}", result);
+            if (rcCreate == 0)
+            {
+                result.Logs.Add(new LogItem
+                {
+                    Text = $"Created local tracking branch '{remoteBranch.LocalBranchName}' from '{remoteBranch.RemoteShortName}'."
+                });
+                return;
+            }
+
+            var (rcFallback, outFallback) = RunGit(repoPath, $"branch {remoteBranch.LocalBranchName} {remoteBranch.RemoteRefName}", result);
+            if (rcFallback == 0)
+            {
+                result.Logs.Add(new LogItem
+                {
+                    Text = $"Created local branch '{remoteBranch.LocalBranchName}' from '{remoteBranch.RemoteShortName}'."
+                });
+                EnsureBranchTracksRemote(repoPath, remoteBranch.LocalBranchName, remoteBranch.RemoteShortName, result);
+                return;
+            }
+
+            result.Failed = true;
+            result.Logs.Add(new LogItem
+            {
+                Text = $"Could not create local branch '{remoteBranch.LocalBranchName}' from '{remoteBranch.RemoteShortName}':\n{outCreate}\n{outFallback}",
+                IsError = true
+            });
+        }
+
+        static void FastForwardLocalBranch(string repoPath, string localRef, string oldSha, string newSha, RepoResult result)
+        {
+            var (rc, output) = RunGit(repoPath, $"update-ref {localRef} {newSha} {oldSha}", result);
+            if (rc != 0)
+            {
+                result.Failed = true;
+                result.Logs.Add(new LogItem
+                {
+                    Text = $"Could not fast-forward {localRef} to {newSha}:\n{output}",
+                    IsError = true
+                });
+            }
+        }
+
+        static void ForceUpdateLocalBranch(string repoPath, string localRef, string newSha, RepoResult result)
+        {
+            var (rc, output) = RunGit(repoPath, $"update-ref {localRef} {newSha}", result);
+            if (rc != 0)
+            {
+                result.Failed = true;
+                result.Logs.Add(new LogItem
+                {
+                    Text = $"Could not force-update {localRef} to {newSha}:\n{output}",
+                    IsError = true
+                });
+            }
+        }
+
+        static void ApplyRefUpdates(string repoPath, List<string> commands, RepoResult result)
+        {
+            if (commands.Count == 0)
+                return;
+
+            var input = string.Join("\n", commands) + "\n";
+            var (rc, output) = RunGitWithInput(repoPath, new[] { "update-ref", "--stdin" }, input, result);
+            if (rc != 0)
+            {
+                result.Failed = true;
+                result.Logs.Add(new LogItem { Text = $"Batch update-ref failed:\n{output}", IsError = true });
+            }
+        }
+
+        static void AddLocalBranchDeleteCommands(string repoPath, HashSet<string> remoteLocalBranchNames, List<string> commands, RepoResult result)
+        {
+            var currentBranch = GetCurrentBranch(repoPath);
+            var (rc, output) = RunGit(repoPath, "for-each-ref --format=\"%(refname:short)\" refs/heads", result);
+            if (rc != 0)
+            {
+                result.Logs.Add(new LogItem
+                {
+                    Text = $"Could not enumerate local branches for pruning:\n{output}",
+                    IsWarning = true
+                });
+                return;
+            }
+
+            foreach (var line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var branchName = line.Trim();
+                if (string.IsNullOrWhiteSpace(branchName))
+                    continue;
+                if (remoteLocalBranchNames.Contains(branchName))
+                    continue;
+                if (string.Equals(branchName, currentBranch, StringComparison.Ordinal))
+                    continue;
+
+                if (!IsSafeRefName(branchName))
+                    continue;
+
+                commands.Add($"delete refs/heads/{branchName}");
+                result.Logs.Add(new LogItem
+                {
+                    Text = $"Queued deletion for local-only branch '{branchName}' because no matching remote branch exists."
+                });
+            }
+        }
+
+        static bool IsSafeRefName(string branchName)
+        {
+            if (string.IsNullOrWhiteSpace(branchName))
+                return false;
+            if (branchName.StartsWith("/", StringComparison.Ordinal) || branchName.EndsWith("/", StringComparison.Ordinal))
+                return false;
+            if (branchName.Contains("..", StringComparison.Ordinal) || branchName.Contains("@{", StringComparison.Ordinal))
+                return false;
+            if (branchName.EndsWith(".lock", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return !branchName.Any(ch => char.IsWhiteSpace(ch) || ch == '\\' || ch == '~' || ch == '^' || ch == ':' || ch == '?' || ch == '*' || ch == '[');
+        }
+
         static void TrySyncWorkingTree(string repoPath, RepoResult result)
         {
             if (ForceSync)
             {
                 // Best-effort: reset the default branch (origin/HEAD) to match remote.
-                var (rcHead, outHead) = RunGit(repoPath, "symbolic-ref -q --short refs/remotes/origin/HEAD");
+                var (rcHead, outHead) = RunGit(repoPath, "symbolic-ref -q --short refs/remotes/origin/HEAD", result);
                 if (rcHead != 0 || string.IsNullOrWhiteSpace(outHead))
                 {
                     result.Failed = true;
@@ -626,7 +1262,7 @@ namespace GitPuller
                 if (CleanUntracked)
                 {
                     // Clean first to avoid checkout failure due to untracked files.
-                    var (rcCleanPre, outCleanPre) = RunGit(repoPath, "clean -fdx");
+                    var (rcCleanPre, outCleanPre) = RunGit(repoPath, new[] { "clean", "-fdx" }, result);
                     if (rcCleanPre != 0)
                     {
                         result.Logs.Add(new LogItem { Text = $"git clean failed:\n{outCleanPre}", IsWarning = true });
@@ -634,7 +1270,7 @@ namespace GitPuller
                 }
 
                 // checkout -B works across older git versions
-                var (rcCo, outCo) = RunGit(repoPath, $"checkout -f -B {branchName} {remoteRef}");
+                var (rcCo, outCo) = RunGit(repoPath, new[] { "checkout", "-f", "-B", branchName, remoteRef }, result);
                 if (rcCo != 0)
                 {
                     result.Failed = true;
@@ -642,7 +1278,7 @@ namespace GitPuller
                     return;
                 }
 
-                var (rcReset, outReset) = RunGit(repoPath, $"reset --hard {remoteRef}");
+                var (rcReset, outReset) = RunGit(repoPath, new[] { "reset", "--hard", remoteRef }, result);
                 if (rcReset != 0)
                 {
                     result.Failed = true;
@@ -652,7 +1288,7 @@ namespace GitPuller
 
                 if (CleanUntracked)
                 {
-                    var (rcClean, outClean) = RunGit(repoPath, "clean -fdx");
+                    var (rcClean, outClean) = RunGit(repoPath, new[] { "clean", "-fdx" }, result);
                     if (rcClean != 0)
                     {
                         result.Logs.Add(new LogItem { Text = $"git clean failed:\n{outClean}", IsWarning = true });
@@ -663,11 +1299,31 @@ namespace GitPuller
             }
 
             // Safe mode: fast-forward only (no merges, no resets).
-            var (rcPull, outPull) = RunGitWithSshToHttpsFallback(repoPath, "pull --ff-only --recurse-submodules=no");
+            var (rcPull, outPull) = RunGitWithSshToHttpsFallback(repoPath, "pull --ff-only --recurse-submodules=no", result);
             if (rcPull != 0)
             {
                 result.Failed = true;
                 result.Logs.Add(new LogItem { Text = $"Pull (ff-only) failed:\n{outPull}", IsError = true });
+            }
+        }
+
+        static void TryFetchLfsObjects(string repoPath, RepoResult result)
+        {
+            var (rcVersion, _) = RunGit(repoPath, new[] { "lfs", "version" });
+            if (rcVersion != 0)
+                return;
+
+            if (!File.Exists(Path.Combine(repoPath, ".gitattributes")))
+            {
+                var (rcTrack, trackOutput) = RunGit(repoPath, new[] { "lfs", "track" });
+                if (rcTrack != 0 || string.IsNullOrWhiteSpace(trackOutput))
+                    return;
+            }
+
+            var (rcFetch, outFetch) = RunGit(repoPath, new[] { "lfs", "fetch", "--all", "--prune" }, result);
+            if (rcFetch != 0)
+            {
+                result.Logs.Add(new LogItem { Text = $"Git LFS fetch failed:\n{outFetch}", IsWarning = true });
             }
         }
 
@@ -677,7 +1333,7 @@ namespace GitPuller
                 return;
 
             // Keep URLs consistent with .gitmodules
-            var (rcSync, outSync) = RunGit(repoPath, "submodule sync --recursive");
+            var (rcSync, outSync) = RunGit(repoPath, "submodule sync --recursive", result);
             if (rcSync != 0)
             {
                 result.Logs.Add(new LogItem { Text = $"Submodule sync failed:\n{outSync}", IsWarning = true });
@@ -690,7 +1346,7 @@ namespace GitPuller
             if (ForceSync)
                 args += " --force";
 
-            var (rcSub, outSub) = RunGitWithSshToHttpsFallback(repoPath, args);
+            var (rcSub, outSub) = RunGitWithSshToHttpsFallback(repoPath, args, result);
             if (rcSub != 0)
             {
                 result.Failed = true;
@@ -704,7 +1360,7 @@ namespace GitPuller
 
         static void TryFetchSubmoduleRemotes(string repoPath, RepoResult result)
         {
-            var (rc, output) = RunGit(repoPath, "submodule status --recursive");
+            var (rc, output) = RunGit(repoPath, "submodule status --recursive", result);
             if (rc != 0 || string.IsNullOrWhiteSpace(output))
                 return;
 
@@ -729,18 +1385,26 @@ namespace GitPuller
                     if (!Directory.Exists(subPath))
                         continue;
 
-                    var (rcFetch, outFetch) = RunGitWithSshToHttpsFallback(subPath, "fetch --all --prune --tags --force");
-                    if (rcFetch != 0)
+                    using (var submoduleLease = TryAcquireRepoMutex(subPath, result))
                     {
-                        result.Logs.Add(new LogItem { Text = $"Submodule fetch failed ({relPath}):\n{outFetch}", IsWarning = true });
-                    }
+                        if (submoduleLease == null)
+                            continue;
 
-                    if (ForceSync && CleanUntracked)
-                    {
-                        var (rcClean, outClean) = RunGit(subPath, "clean -fdx");
-                        if (rcClean != 0)
+                        TryCleanupStaleGitLocks(subPath, result);
+
+                        var (rcFetch, outFetch) = RunGitWithSshToHttpsFallback(subPath, "fetch --all --prune --prune-tags --tags --force", result);
+                        if (rcFetch != 0)
                         {
-                            result.Logs.Add(new LogItem { Text = $"Submodule clean failed ({relPath}):\n{outClean}", IsWarning = true });
+                            result.Logs.Add(new LogItem { Text = $"Submodule fetch failed ({relPath}):\n{outFetch}", IsWarning = true });
+                        }
+
+                        if (ForceSync && CleanUntracked)
+                        {
+                            var (rcClean, outClean) = RunGit(subPath, new[] { "clean", "-fdx" }, result);
+                            if (rcClean != 0)
+                            {
+                                result.Logs.Add(new LogItem { Text = $"Submodule clean failed ({relPath}):\n{outClean}", IsWarning = true });
+                            }
                         }
                     }
                 }
@@ -767,10 +1431,10 @@ namespace GitPuller
             }
         }
 
-        static Dictionary<string, string> GetRemoteRefs(string repoPath)
+        static Dictionary<string, string> GetRemoteRefs(string repoPath, RepoResult? result = null)
         {
             var refs = new Dictionary<string, string>();
-            var (rc, output) = RunGit(repoPath, "for-each-ref --format=\"%(refname) %(objectname)\" refs/remotes");
+            var (rc, output) = RunGit(repoPath, "for-each-ref --format=\"%(refname) %(objectname)\" refs/remotes", result);
             if (rc == 0)
             {
                 using (var reader = new StringReader(output))
@@ -786,8 +1450,167 @@ namespace GitPuller
             return refs;
         }
 
-        static (int, string) RunGit(string cwd, string args)
+        static (int, string) RunGit(string cwd, string args, RepoResult? result = null)
         {
+            (int rc, string output) lastResult = (-1, "");
+
+            for (int attempt = 0; attempt < GitLockRetryCount; attempt++)
+            {
+                lastResult = RunGitOnce(cwd, args, result);
+                if (lastResult.rc == 0 || !LooksLikeGitLockFailure(lastResult.output) || attempt == GitLockRetryCount - 1)
+                    return lastResult;
+
+                TryCleanupStaleGitLocks(cwd, result);
+                Thread.Sleep(GitLockRetryDelayMs * (attempt + 1));
+            }
+
+            return lastResult;
+        }
+
+        static (int, string) RunGit(string cwd, IReadOnlyList<string> args, RepoResult? result = null)
+        {
+            return RunGitWithInput(cwd, args, null, result);
+        }
+
+        static (int, string) RunGitWithInput(string cwd, IReadOnlyList<string> args, string? stdin, RepoResult? result = null)
+        {
+            (int rc, string output) lastResult = (-1, "");
+
+            for (int attempt = 0; attempt < GitLockRetryCount; attempt++)
+            {
+                lastResult = RunGitWithInputOnce(cwd, args, stdin, result);
+                if (lastResult.rc == 0 || !LooksLikeGitLockFailure(lastResult.output) || attempt == GitLockRetryCount - 1)
+                    return lastResult;
+
+                TryCleanupStaleGitLocks(cwd, result);
+                Thread.Sleep(GitLockRetryDelayMs * (attempt + 1));
+            }
+
+            return lastResult;
+        }
+
+        static (int, string) RunGitWithInputOnce(string cwd, IReadOnlyList<string> args, string? stdin, RepoResult? result = null)
+        {
+            string commandLabel = $"git {FormatArgsForLog(args)}";
+            var startedAt = DateTimeOffset.Now;
+            var stopwatch = Stopwatch.StartNew();
+
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "git",
+                    WorkingDirectory = cwd,
+                    RedirectStandardInput = stdin != null,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                };
+
+                foreach (var arg in args)
+                    psi.ArgumentList.Add(arg);
+
+                psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
+                psi.Environment["GCM_INTERACTIVE"] = "never";
+
+                var p = Process.Start(psi);
+                if (p == null)
+                {
+                    stopwatch.Stop();
+                    RecordOperation(result, commandLabel, cwd, startedAt, stopwatch.Elapsed, -1, timedOut: false);
+                    return (-1, $"Failed to start git process. Command: {commandLabel}\nRepository: {cwd}");
+                }
+
+                using (p)
+                {
+                    var stdout = p.StandardOutput.ReadToEndAsync();
+                    var stderr = p.StandardError.ReadToEndAsync();
+
+                    if (stdin != null)
+                    {
+                        p.StandardInput.Write(stdin);
+                        p.StandardInput.Close();
+                    }
+
+                    if (!p.WaitForExit(GitTimeout))
+                    {
+                        var timeoutDetails = new StringBuilder();
+                        timeoutDetails.AppendLine($"Timeout ({GitTimeout / 1000}s)");
+                        timeoutDetails.AppendLine($"Command: {commandLabel}");
+                        timeoutDetails.AppendLine($"Repository: {cwd}");
+
+                        try
+                        {
+                            if (!p.HasExited)
+                                p.Kill(entireProcessTree: true);
+
+                            if (!p.WaitForExit(5000))
+                                timeoutDetails.AppendLine("Warning: Process did not exit within 5s after kill request.");
+                        }
+                        catch (Exception killEx)
+                        {
+                            timeoutDetails.AppendLine($"Warning: Failed to terminate process tree: {killEx.Message}");
+                        }
+
+                        try
+                        {
+                            Task.WaitAll(new Task[] { stdout, stderr }, 2000);
+                        }
+                        catch
+                        {
+                        }
+
+                        var partialStdout = stdout.Status == TaskStatus.RanToCompletion ? stdout.Result : string.Empty;
+                        var partialStderr = stderr.Status == TaskStatus.RanToCompletion ? stderr.Result : string.Empty;
+                        var partialOutput = (partialStdout + "\n" + partialStderr).Trim();
+                        if (!string.IsNullOrWhiteSpace(partialOutput))
+                        {
+                            timeoutDetails.AppendLine();
+                            timeoutDetails.AppendLine("Partial output:");
+                            timeoutDetails.AppendLine(partialOutput);
+                        }
+
+                        stopwatch.Stop();
+                        RecordOperation(result, commandLabel, cwd, startedAt, stopwatch.Elapsed, -1, timedOut: true);
+
+                        return (-1, timeoutDetails.ToString().Trim());
+                    }
+
+                    Task.WaitAll(stdout, stderr);
+                    stopwatch.Stop();
+                    RecordOperation(result, commandLabel, cwd, startedAt, stopwatch.Elapsed, p.ExitCode, timedOut: false);
+                    return (p.ExitCode, (stdout.Result + "\n" + stderr.Result).Trim());
+                }
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                RecordOperation(result, commandLabel, cwd, startedAt, stopwatch.Elapsed, -1, timedOut: false);
+                return (-1, $"{ex.Message}\nCommand: {commandLabel}\nRepository: {cwd}");
+            }
+        }
+
+        static string FormatArgsForLog(IEnumerable<string> args)
+        {
+            return string.Join(" ", args.Select(arg =>
+            {
+                if (arg.Length == 0)
+                    return "\"\"";
+                if (arg.Any(char.IsWhiteSpace) || arg.Contains('"'))
+                    return "\"" + arg.Replace("\"", "\\\"") + "\"";
+                return arg;
+            }));
+        }
+
+        static (int, string) RunGitOnce(string cwd, string args, RepoResult? result = null)
+        {
+            string commandLabel = $"git {args}";
+            var startedAt = DateTimeOffset.Now;
+            var stopwatch = Stopwatch.StartNew();
+
             try
             {
                 var psi = new ProcessStartInfo
@@ -809,7 +1632,11 @@ namespace GitPuller
 
                 var p = Process.Start(psi);
                 if (p == null)
-                    return (-1, "Failed to start git process.");
+                {
+                    stopwatch.Stop();
+                    RecordOperation(result, commandLabel, cwd, startedAt, stopwatch.Elapsed, -1, timedOut: false);
+                    return (-1, $"Failed to start git process. Command: {commandLabel}\nRepository: {cwd}");
+                }
 
                 using (p)
                 {
@@ -818,23 +1645,81 @@ namespace GitPuller
                     
                     if (!p.WaitForExit(GitTimeout))
                     {
-                        try { p.Kill(); } catch { }
-                        return (-1, $"Timeout ({GitTimeout/1000}s)");
+                        var timeoutDetails = new StringBuilder();
+                        timeoutDetails.AppendLine($"Timeout ({GitTimeout / 1000}s)");
+                        timeoutDetails.AppendLine($"Command: {commandLabel}");
+                        timeoutDetails.AppendLine($"Repository: {cwd}");
+
+                        try
+                        {
+                            if (!p.HasExited)
+                                p.Kill(entireProcessTree: true);
+
+                            if (!p.WaitForExit(5000))
+                                timeoutDetails.AppendLine("Warning: Process did not exit within 5s after kill request.");
+                        }
+                        catch (Exception killEx)
+                        {
+                            timeoutDetails.AppendLine($"Warning: Failed to terminate process tree: {killEx.Message}");
+                        }
+
+                        try
+                        {
+                            Task.WaitAll(new Task[] { stdout, stderr }, 2000);
+                        }
+                        catch
+                        {
+                        }
+
+                        var partialStdout = stdout.Status == TaskStatus.RanToCompletion ? stdout.Result : string.Empty;
+                        var partialStderr = stderr.Status == TaskStatus.RanToCompletion ? stderr.Result : string.Empty;
+                        var partialOutput = (partialStdout + "\n" + partialStderr).Trim();
+                        if (!string.IsNullOrWhiteSpace(partialOutput))
+                        {
+                            timeoutDetails.AppendLine();
+                            timeoutDetails.AppendLine("Partial output:");
+                            timeoutDetails.AppendLine(partialOutput);
+                        }
+
+                        stopwatch.Stop();
+                        RecordOperation(result, commandLabel, cwd, startedAt, stopwatch.Elapsed, -1, timedOut: true);
+
+                        return (-1, timeoutDetails.ToString().Trim());
                     }
 
                     Task.WaitAll(stdout, stderr);
+                    stopwatch.Stop();
+                    RecordOperation(result, commandLabel, cwd, startedAt, stopwatch.Elapsed, p.ExitCode, timedOut: false);
                     return (p.ExitCode, (stdout.Result + "\n" + stderr.Result).Trim());
                 }
             }
             catch (Exception ex)
             {
-                return (-1, ex.Message);
+                stopwatch.Stop();
+                RecordOperation(result, commandLabel, cwd, startedAt, stopwatch.Elapsed, -1, timedOut: false);
+                return (-1, $"{ex.Message}\nCommand: {commandLabel}\nRepository: {cwd}");
             }
         }
 
-        static (int, string) RunGitWithSshToHttpsFallback(string cwd, string args)
+        static void RecordOperation(RepoResult? result, string command, string cwd, DateTimeOffset startedAt, TimeSpan elapsed, int exitCode, bool timedOut)
         {
-            var (rc, output) = RunGit(cwd, args);
+            if (result == null)
+                return;
+
+            result.Operations.Add(new RepoOperation
+            {
+                Command = command,
+                WorkingDirectory = cwd,
+                StartedAt = startedAt,
+                Elapsed = elapsed,
+                ExitCode = exitCode,
+                TimedOut = timedOut
+            });
+        }
+
+        static (int, string) RunGitWithSshToHttpsFallback(string cwd, string args, RepoResult? result = null)
+        {
+            var (rc, output) = RunGit(cwd, args, result);
             if (rc == 0)
                 return (rc, output);
 
@@ -844,7 +1729,7 @@ namespace GitPuller
             var hosts = ExtractHostsFromText(output);
             if (hosts.Count == 0)
             {
-                var (rcRemotes, outRemotes) = RunGit(cwd, "remote -v");
+                var (rcRemotes, outRemotes) = RunGit(cwd, "remote -v", result);
                 if (rcRemotes == 0 && !string.IsNullOrWhiteSpace(outRemotes))
                     hosts = ExtractHostsFromText(outRemotes);
             }
@@ -856,7 +1741,7 @@ namespace GitPuller
             if (string.IsNullOrWhiteSpace(rewritePrefix))
                 return (rc, output);
 
-            var (rc2, output2) = RunGit(cwd, $"{rewritePrefix} {args}");
+            var (rc2, output2) = RunGit(cwd, $"{rewritePrefix} {args}", result);
             if (rc2 == 0)
                 return (rc2, output2);
 
@@ -877,6 +1762,18 @@ namespace GitPuller
                 || output.IndexOf("Permission denied (publickey", StringComparison.OrdinalIgnoreCase) >= 0
                 || output.IndexOf("Could not read from remote repository", StringComparison.OrdinalIgnoreCase) >= 0
                 || output.IndexOf("fatal: Could not read from remote repository", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        static bool LooksLikeGitLockFailure(string output)
+        {
+            if (string.IsNullOrWhiteSpace(output))
+                return false;
+
+            return output.IndexOf(".lock", StringComparison.OrdinalIgnoreCase) >= 0
+                || output.IndexOf("cannot lock", StringComparison.OrdinalIgnoreCase) >= 0
+                || output.IndexOf("could not lock", StringComparison.OrdinalIgnoreCase) >= 0
+                || output.IndexOf("Unable to create", StringComparison.OrdinalIgnoreCase) >= 0
+                || output.IndexOf("another git process seems to be running", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         static HashSet<string> ExtractHostsFromText(string text)
@@ -1068,14 +1965,71 @@ namespace GitPuller
             Console.WriteLine("\n========================================================");
 
             // Markdown Report
+            var orderedResults = results
+                .OrderBy(r => r.StartedAt == default ? DateTimeOffset.MaxValue : r.StartedAt)
+                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var workerGroups = orderedResults
+                .GroupBy(r => r.WorkerSlot)
+                .OrderBy(g => g.Key)
+                .ToList();
+
             var sb = new StringBuilder();
             sb.AppendLine("# Git Update Report");
             sb.AppendLine($"Generated: {DateTime.Now}");
             sb.AppendLine();
-            
-            foreach (var res in results.OrderBy(r => r.Name))
+
+            sb.AppendLine("## Run Summary");
+            sb.AppendLine($"- Total Repositories: {TotalRepos}");
+            sb.AppendLine($"- Requested Workers: {MaxDegreeOfParallelism}");
+            sb.AppendLine($"- Successful Repositories: {SuccessCount}");
+            sb.AppendLine($"- Failed Repositories: {FailCount}");
+            sb.AppendLine($"- Total New Commits: {GlobalNewCommitsCount}");
+            sb.AppendLine($"- Wall-clock Elapsed: {elapsed.TotalSeconds:F2}s");
+            sb.AppendLine();
+
+            if (VerboseReport)
             {
-                if (res.NewCommitsCount == 0 && !res.Failed && res.Logs.Count == 0) continue;
+                sb.AppendLine("## Worker Execution Details");
+                foreach (var workerGroup in workerGroups)
+                {
+                    var workerTotal = TimeSpan.FromTicks(workerGroup.Sum(r => r.Elapsed.Ticks));
+                    sb.AppendLine($"### Worker {workerGroup.Key}");
+                    sb.AppendLine($"- Repositories Handled: {workerGroup.Count()}");
+                    sb.AppendLine($"- Cumulative Repository Time: {workerTotal.TotalSeconds:F2}s");
+                    sb.AppendLine();
+
+                    foreach (var res in workerGroup)
+                    {
+                        sb.AppendLine($"#### {res.Name}");
+                        sb.AppendLine($"- Repository Path: `{res.Path}`");
+                        sb.AppendLine($"- Started At: {res.StartedAt:yyyy-MM-dd HH:mm:ss zzz}");
+                        sb.AppendLine($"- Completed At: {res.CompletedAt:yyyy-MM-dd HH:mm:ss zzz}");
+                        sb.AppendLine($"- Total Elapsed: {res.Elapsed.TotalSeconds:F2}s");
+
+                        if (res.Operations.Count > 0)
+                        {
+                            sb.AppendLine("- Operations:");
+                            foreach (var op in res.Operations)
+                            {
+                                var status = op.TimedOut ? "timeout" : (op.ExitCode == 0 ? "ok" : $"rc={op.ExitCode}");
+                                sb.AppendLine($"  - {op.StartedAt:HH:mm:ss} | `{op.Command}` | {op.Elapsed.TotalSeconds:F2}s | {status}");
+                            }
+                        }
+                        else
+                        {
+                            sb.AppendLine("- Operations: none recorded");
+                        }
+
+                        sb.AppendLine();
+                    }
+                }
+            }
+
+            sb.AppendLine("## Repository Result Notes");
+            foreach (var res in orderedResults)
+            {
                 var icon = res.Failed ? "❌" : "✅";
                 sb.AppendLine($"## {icon} {res.Name}");
                 if (res.Failed) sb.AppendLine("**FAILED**");
@@ -1088,8 +2042,18 @@ namespace GitPuller
                 }
                 sb.AppendLine();
             }
-            File.WriteAllText("git_update_report.md", sb.ToString(), Encoding.UTF8);
-            Console.WriteLine($"Report written to {Path.GetFullPath("git_update_report.md")}");
+            var reportText = sb.ToString();
+            var reportPath = GetRunReportPath();
+            var latestReportPath = Path.Combine(RootDir, LatestReportFileName);
+            File.WriteAllText(reportPath, reportText, Encoding.UTF8);
+            File.WriteAllText(latestReportPath, reportText, Encoding.UTF8);
+            Console.WriteLine($"Report written to {Path.GetFullPath(reportPath)}");
+            Console.WriteLine($"Latest report written to {Path.GetFullPath(latestReportPath)}");
+        }
+
+        static string GetRunReportPath()
+        {
+            return Path.Combine(RootDir, $"git_update_report-{RunId}.md");
         }
     }
 
@@ -1099,7 +2063,59 @@ namespace GitPuller
         public string Name { get; set; } = "";
         public int NewCommitsCount { get; set; }
         public bool Failed { get; set; }
+        public int WorkerSlot { get; set; }
+        public DateTimeOffset StartedAt { get; set; }
+        public DateTimeOffset CompletedAt { get; set; }
+        public TimeSpan Elapsed { get; set; }
+        public List<RepoOperation> Operations { get; set; } = new List<RepoOperation>();
         public List<LogItem> Logs { get; set; } = new List<LogItem>();
+    }
+
+    class RepoOperation
+    {
+        public string Command { get; set; } = "";
+        public string WorkingDirectory { get; set; } = "";
+        public DateTimeOffset StartedAt { get; set; }
+        public TimeSpan Elapsed { get; set; }
+        public int ExitCode { get; set; }
+        public bool TimedOut { get; set; }
+    }
+
+    class RemoteBranchRef
+    {
+        public string RemoteName { get; set; } = "";
+        public string BranchName { get; set; } = "";
+        public string LocalBranchName { get; set; } = "";
+        public string RemoteShortName { get; set; } = "";
+        public string RemoteRefName { get; set; } = "";
+        public string Sha { get; set; } = "";
+    }
+
+    sealed class RepoMutexLease : IDisposable
+    {
+        readonly Mutex mutex;
+        bool disposed;
+
+        public RepoMutexLease(Mutex mutex)
+        {
+            this.mutex = mutex;
+        }
+
+        public void Dispose()
+        {
+            if (disposed)
+                return;
+
+            disposed = true;
+            try
+            {
+                mutex.ReleaseMutex();
+            }
+            finally
+            {
+                mutex.Dispose();
+            }
+        }
     }
 
     class LogItem

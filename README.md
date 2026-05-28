@@ -9,6 +9,7 @@
 - [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) 이상 (실행 시)
 - 또는 [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (직접 빌드 시)
 - Git이 설치되어 있고 시스템 PATH에 등록되어 있어야 합니다.
+- Git LFS 오브젝트까지 백업하려면 Git LFS가 설치되어 있고 시스템 PATH에 등록되어 있어야 합니다. 설치되어 있지 않으면 LFS 단계는 자동으로 생략됩니다.
 
 ### 설치 및 실행
 
@@ -69,16 +70,34 @@ pull.bat
 
 - `--no-pull`: `git pull --ff-only`를 생략하고 `fetch` 및 보고서 생성만 수행합니다.
 
-- `--force-sync`: (주의: 파괴적) 각 저장소의 기본 브랜치(`origin/HEAD`)를 체크아웃하여 리모트 상태로 강제 동기화합니다.
+- `--all-branches`: 모든 원격 브랜치를 로컬 tracking branch로 생성하거나 fast-forward합니다. 기본값입니다.
 
-- `--clean`: (주의: 파괴적) `--force-sync`와 함께 사용 시 `git clean -fdx`로 untracked/ignored 파일을 삭제합니다.
+- `--current-branch-only`: 모든 로컬 브랜치 미러링은 생략하고, `origin/HEAD` 작업 트리만 강제 동기화합니다.
+
+- `--force-sync`: 각 저장소의 로컬 브랜치 ref를 리모트 상태로 강제 동기화하고, 작업 트리는 기본 브랜치(`origin/HEAD`)로 강제 동기화합니다. 기본값입니다.
+
+- `--clean`: `git clean -fdx`로 untracked/ignored 파일을 삭제합니다. 기본값입니다.
+
+- `--stale-lock-minutes <분>`: 지정한 시간보다 오래된 Git `.lock` 파일만 stale lock으로 보고 삭제합니다. 기본값은 10분입니다.
+
+- `--no-stale-lock-cleanup`: stale lock 자동 삭제를 비활성화합니다. lock 파일이 남아 있으면 해당 Git 명령은 실패할 수 있습니다.
+
+- `--verbose-report`: 마크다운 리포트에 worker별 실행 상세와 개별 Git 명령 실행 시간을 포함합니다. 기본 리포트는 요약과 저장소별 결과만 기록합니다.
 
 ## 작동 방식
 
-1. **초기 실행:** 지정된 루트 디렉터리 하위의 모든 폴더를 재귀적으로 스캔하여 `.git` 폴더가 있는 리포지토리를 찾습니다.
-2. **캐싱:** 찾은 리포지토리 목록을 `.git_repo_cache.json`에 저장합니다.
-3. **업데이트:** 각 리포지토리에 대해 `git fetch`, `git pull` (Fast-forward only), `git submodule update` 등을 수행합니다.
-   - 기본 동작은 안전하게 fast-forward만 수행합니다.
-   - `--force-sync`를 주면 기본 브랜치를 리모트와 동일하게 강제 동기화합니다. (로컬 변경/브랜치 상태가 덮어써질 수 있습니다)
+1. **실행 잠금:** 같은 루트 디렉터리를 대상으로 하는 다른 MyGitPuller 인스턴스가 있으면, `--timeout` 시간만큼 기다린 뒤 실패합니다.
+2. **초기 실행:** 지정된 루트 디렉터리 하위의 모든 폴더를 재귀적으로 스캔하여 `.git` 폴더가 있는 리포지토리를 찾습니다.
+3. **캐싱:** 찾은 리포지토리 목록을 `.git_repo_cache.json`에 저장합니다.
+4. **업데이트:** 각 리포지토리에 대해 `git fetch --all --prune --prune-tags --tags --force`, 모든 원격 브랜치의 로컬 branch ref 강제 동기화, 기본 브랜치 작업 트리의 `reset --hard`/`clean`, `git submodule update` 등을 수행합니다.
+   - 이 도구는 백업용이므로 기본 동작이 파괴적입니다. 로컬 변경, diverged 로컬 브랜치, untracked/ignored 파일은 보존하지 않습니다.
+   - 원격 브랜치는 가능한 한 한 번의 `git update-ref --stdin` 배치로 로컬 branch ref에 반영합니다.
+   - 원격에 없는 local-only 브랜치는 삭제합니다.
+   - 원격에서 삭제된 태그도 로컬에서 pruning합니다.
+   - Git LFS가 설치되어 있고 저장소에서 LFS를 사용하는 것으로 보이면 `git lfs fetch --all --prune`을 실행합니다.
+   - 오래된 Git `.lock` 파일은 10분 이상 지난 경우 stale lock으로 보고 정리한 뒤 재시도합니다. 최근 lock은 실행 중인 Git 작업일 수 있으므로 삭제하지 않습니다.
    - 서브모듈은 기본적으로 `sync` + `update --init --recursive`로 최신 상태(슈퍼프로젝트가 가리키는 커밋)로 맞춥니다.
-4. **결과:** 성공, 실패, 업데이트 변경 사항(커밋 로그 포함)을 콘솔에 출력하고 마크다운 리포트를 생성합니다.
+5. **결과:** 성공, 실패, 업데이트 변경 사항(커밋 로그 포함)을 콘솔에 출력하고 마크다운 리포트를 생성합니다.
+   - 각 실행은 `git_update_report-<timestamp>.md`를 새로 생성합니다.
+   - 호환성을 위해 최신 리포트는 `git_update_report.md`에도 함께 기록합니다.
+   - 하나 이상의 저장소가 실패하면 프로그램 종료 코드는 `1`입니다.

@@ -47,7 +47,10 @@ Thumbs.db
 Publish/
 .git_repo_cache.json
 git_update_report.md
+git_update_report-*.md
 
 # Etc
 .git_repo_cache.json
 git_update_report.md
+git_update_report-*.md
+docs/
