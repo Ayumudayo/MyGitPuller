@@ -212,13 +212,18 @@ public static class GitFailureClassifier
 
     private static FailureDiagnostic CreateRecentLockDiagnostic(string evidence, RepoResult result)
     {
+        var failed = result.Failed;
         return CreateDiagnostic(
             category: FailureCategory.LockExistsRecent,
-            retryPolicy: RetryPolicy.PossibleAfterCheck,
-            severity: result.Failed ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
+            retryPolicy: failed ? RetryPolicy.PossibleAfterCheck : RetryPolicy.NotApplicable,
+            severity: failed ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
             title: "Git lock needs review",
-            explanation: "Git reported a lock file that still needs a user check before retrying.",
-            suggestedAction: "Check whether another Git process is still running or whether the lock file can be removed before retrying.",
+            explanation: failed
+                ? "Git reported a lock file that still needs a user check before retrying."
+                : "Git reported a lock cleanup warning, but the repository completed successfully.",
+            suggestedAction: failed
+                ? "Check whether another Git process is still running or whether the lock file can be removed before retrying."
+                : "No retry is needed for this completed repository.",
             evidence: evidence,
             result,
             relatedCommandSelector: operation => operation.ExitCode != 0 || operation.TimedOut);
