@@ -204,6 +204,29 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task SelectedFolderNode_WhenChildFolderSelected_UpdatesAddRepositoryCategory()
+    {
+        var viewModel = await CreateHierarchicalTreeViewModelAsync();
+        viewModel.RepositoryUrlToAdd = "https://github.com/example/new-plugin.git";
+
+        var childNode = FindTreeNode(viewModel, "Dalamud Plugins/CombatReborn");
+        SetRequiredPropertyValue(viewModel, "SelectedFolderNode", childNode);
+
+        Assert.NotNull(viewModel.SelectedCategory);
+        Assert.Equal("Dalamud Plugins/CombatReborn", viewModel.SelectedCategory.Name);
+        Assert.True(viewModel.CanAddRepositoryFromUrl);
+
+        viewModel.BeginAddRepository();
+
+        Assert.Equal("Dalamud Plugins/CombatReborn", viewModel.AddRepositoryCategoryName);
+
+        SetRequiredPropertyValue(viewModel, "SelectedFolderNode", viewModel.RepositoryTreeNodes[0]);
+
+        Assert.Null(viewModel.SelectedCategory);
+        Assert.False(viewModel.CanAddRepositoryFromUrl);
+    }
+
+    [Fact]
     public async Task SelectedFolderNode_WhenParentFolderSelected_FiltersDescendants()
     {
         var viewModel = await CreateHierarchicalTreeViewModelAsync();

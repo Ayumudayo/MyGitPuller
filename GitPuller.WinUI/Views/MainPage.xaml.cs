@@ -421,13 +421,19 @@ public sealed partial class MainPage : Page
             return;
         }
 
+        var expandedFolderNames = GetExpandedFolderNames();
+        var hasPriorExpansionState = FolderTreeView.RootNodes.Count > 0;
+
         suppressFolderTreeSelectionChanged = true;
         try
         {
             FolderTreeView.RootNodes.Clear();
             foreach (var rootNode in ViewModel.RepositoryTreeNodes)
             {
-                FolderTreeView.RootNodes.Add(CreateTreeNode(rootNode));
+                FolderTreeView.RootNodes.Add(CreateTreeNode(
+                    rootNode,
+                    expandedFolderNames,
+                    hasPriorExpansionState));
             }
 
             SynchronizeSelectedFolderNode();
@@ -456,17 +462,48 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private static TreeViewNode CreateTreeNode(RepositoryFolderNodeViewModel folderNode)
+    private HashSet<string> GetExpandedFolderNames()
     {
+        var expandedFolderNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rootNode in FolderTreeView.RootNodes)
+        {
+            CollectExpandedFolderNames(rootNode, expandedFolderNames);
+        }
+
+        return expandedFolderNames;
+    }
+
+    private static void CollectExpandedFolderNames(TreeViewNode treeNode, ISet<string> expandedFolderNames)
+    {
+        if (treeNode.Content is RepositoryFolderNodeViewModel folderNode
+            && treeNode.IsExpanded
+            && !folderNode.IsAllRepositories)
+        {
+            expandedFolderNames.Add(folderNode.FullCategoryName);
+        }
+
+        foreach (var childNode in treeNode.Children)
+        {
+            CollectExpandedFolderNames(childNode, expandedFolderNames);
+        }
+    }
+
+    private static TreeViewNode CreateTreeNode(
+        RepositoryFolderNodeViewModel folderNode,
+        IReadOnlySet<string> expandedFolderNames,
+        bool hasPriorExpansionState)
+    {
+        var hasChildren = folderNode.Children.Count > 0;
         var treeNode = new TreeViewNode
         {
             Content = folderNode,
-            IsExpanded = folderNode.Children.Count > 0
+            IsExpanded = hasChildren
+                && (!hasPriorExpansionState || expandedFolderNames.Contains(folderNode.FullCategoryName))
         };
 
         foreach (var child in folderNode.Children)
         {
-            treeNode.Children.Add(CreateTreeNode(child));
+            treeNode.Children.Add(CreateTreeNode(child, expandedFolderNames, hasPriorExpansionState));
         }
 
         return treeNode;

@@ -1718,8 +1718,23 @@ public sealed class MainShellViewModel : ObservableObject
         var normalizedValue = NormalizeSelectedFolderNode(value);
         if (SetProperty(ref selectedFolderNode, normalizedValue, nameof(SelectedFolderNode)))
         {
+            UpdateSelectedCategoryFromFolderNode(normalizedValue);
             RaiseFolderSelectionDerivedPropertiesChanged();
         }
+    }
+
+    private void UpdateSelectedCategoryFromFolderNode(RepositoryFolderNodeViewModel? folderNode)
+    {
+        if (folderNode is null || folderNode.IsAllRepositories)
+        {
+            SetSelectedCategory(null, updateNavigation: false);
+            return;
+        }
+
+        SetSelectedCategory(
+            Categories.FirstOrDefault(category =>
+                string.Equals(category.Name, folderNode.FullCategoryName, StringComparison.OrdinalIgnoreCase)),
+            updateNavigation: false);
     }
 
     private void EnsureSelectedResultIsVisible()
@@ -1748,8 +1763,6 @@ public sealed class MainShellViewModel : ObservableObject
     private void RepositoryResults_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         RefreshCategoryNavigationItems();
-        RefreshAllRepositoriesNavigationItem();
-        RefreshRepositoryTreeNodes();
         RaiseResultDerivedPropertiesChanged();
         EnsureSelectedResultIsVisible();
     }
