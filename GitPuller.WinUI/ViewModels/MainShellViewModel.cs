@@ -583,7 +583,7 @@ public sealed class MainShellViewModel : ObservableObject
                 request,
                 CreateProgress(),
                 cancellationToken);
-            ApplyRunCompleted(runResult);
+            await dispatcher.EnqueueAsync(() => ApplyRunCompleted(runResult));
         }
         catch (OperationCanceledException)
         {
@@ -618,8 +618,7 @@ public sealed class MainShellViewModel : ObservableObject
                 resultToRetry.Path,
                 CreateProgress(),
                 cancellationToken);
-            UpsertRepositoryResult(retryResult, FindRepositoryDescriptor(retryResult.Path));
-            SetRunProgress(1, 1, $"Retry completed: {retryResult.Name}");
+            await dispatcher.EnqueueAsync(() => ApplyRetryCompleted(retryResult));
         }
         catch (OperationCanceledException)
         {
@@ -1508,6 +1507,12 @@ public sealed class MainShellViewModel : ObservableObject
                 runResult.LatestReportPath));
     }
 
+    private void ApplyRetryCompleted(RepoResult retryResult)
+    {
+        UpsertRepositoryResult(retryResult, FindRepositoryDescriptor(retryResult.Path));
+        SetRunProgress(1, 1, $"Retry completed: {retryResult.Name}");
+    }
+
     private void ClearLoadedRunState()
     {
         currentLibraryLoad = null;
@@ -2241,6 +2246,7 @@ internal sealed class RepositoryFolderNodeBuilder
 public interface IViewModelDispatcher
 {
     void Enqueue(Action action);
+    Task EnqueueAsync(Action action);
 }
 
 public sealed class ImmediateViewModelDispatcher : IViewModelDispatcher
@@ -2254,6 +2260,12 @@ public sealed class ImmediateViewModelDispatcher : IViewModelDispatcher
     public void Enqueue(Action action)
     {
         action();
+    }
+
+    public Task EnqueueAsync(Action action)
+    {
+        action();
+        return Task.CompletedTask;
     }
 }
 

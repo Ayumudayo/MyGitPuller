@@ -851,6 +851,80 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task RunSyncAsync_QueuedProgressDoesNotOverwriteFinalReportStatus_AndRetryStillUpdatesProgress()
+    {
+        var libraryRoot = Path.Combine(TestRoot, "libraries", Guid.NewGuid().ToString("N"));
+        var repository = new RepositoryDescriptor(
+            Path.Combine(libraryRoot, "Plugins", "QueuedRepo"),
+            "QueuedRepo",
+            "Plugins",
+            "https://github.com/example/QueuedRepo.git");
+        var loadResult = new GitPullerLibraryLoadResult(
+            libraryRoot,
+            new GitPullerOptions(),
+            new RepositoryInventory(libraryRoot, [repository]),
+            [],
+            ["Plugins"]);
+        var latestReportRoot = Path.Combine(TestRoot, "reports", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(latestReportRoot);
+        var latestReportPath = Path.Combine(latestReportRoot, GitPullerReportWriter.LatestReportFileName);
+        await File.WriteAllTextAsync(latestReportPath, "# Git Update Report");
+
+        var service = new FakeGitPullerSyncService(loadResult);
+        service.RunAllAsyncHandler = (_, progress, _) =>
+        {
+            var failedResult = RepoResultFor(
+                repository,
+                failed: true,
+                newCommits: 0,
+                Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error));
+            progress?.Report(GitPullerProgressEvent.RunStarted(1));
+            progress?.Report(GitPullerProgressEvent.RepositoryCompleted(repository, failedResult, 1, 1));
+
+            return Task.FromResult(new GitPullerRunResult
+            {
+                StartedAt = DateTimeOffset.UtcNow,
+                CompletedAt = DateTimeOffset.UtcNow,
+                RepositoryResults = [failedResult],
+                LatestReportPath = latestReportPath,
+                RunReportPath = Path.Combine(latestReportRoot, "git_update_report-20260529-120000-000.md")
+            });
+        };
+        service.RetryRepositoryAsyncHandler = (_, _, progress, _) =>
+        {
+            var retryResult = RepoResultFor(repository, failed: false, newCommits: 3, diagnostic: null);
+            progress?.Report(GitPullerProgressEvent.RepositoryStarted(repository, 1, 0));
+            progress?.Report(GitPullerProgressEvent.RepositoryCompleted(repository, retryResult, 1, 1));
+
+            return Task.FromResult(retryResult);
+        };
+
+        var dispatcher = new QueuedViewModelDispatcher();
+        var viewModel = new MainShellViewModel(
+            libraryRoot,
+            service,
+            dispatcher,
+            launcher: new FakeFileSystemLauncher());
+
+        var runTask = viewModel.RunSyncAsync();
+        dispatcher.FlushAll();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Contains(GitPullerReportWriter.LatestReportFileName, viewModel.RunStatusMessage, StringComparison.Ordinal);
+        Assert.Equal(latestReportPath, viewModel.LatestReportPath);
+        Assert.True(viewModel.CanOpenLatestReport);
+        Assert.True(viewModel.RetrySelectedCommand.CanExecute(null));
+
+        var retryTask = viewModel.RetrySelectedAsync();
+        dispatcher.FlushAll();
+        await retryTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Contains("Retry completed: QueuedRepo", viewModel.RunStatusMessage, StringComparison.Ordinal);
+        Assert.Equal("1 of 1 repositories completed", viewModel.RunProgressText);
+        Assert.Equal(RepositoryResultStatus.Updated, Assert.Single(viewModel.RepositoryResults).Status);
+    }
+
+    [Fact]
     public async Task CoreGitPullerSyncService_RunAllAsync_WritesReportsAndReturnsPaths()
     {
         var scenarioRoot = Path.Combine(TestRoot, "sync-service", Guid.NewGuid().ToString("N"));
@@ -1808,6 +1882,43 @@ public sealed class MainShellViewModelTests
         {
             LaunchedUris.Add(uri);
             return Task.FromResult(true);
+        }
+    }
+
+    private sealed class QueuedViewModelDispatcher : IViewModelDispatcher
+    {
+        private readonly Queue<Action> actions = new();
+
+        public void Enqueue(Action action)
+        {
+            actions.Enqueue(action);
+        }
+
+        public Task EnqueueAsync(Action action)
+        {
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            actions.Enqueue(() =>
+            {
+                try
+                {
+                    action();
+                    completion.SetResult();
+                }
+                catch (Exception ex)
+                {
+                    completion.SetException(ex);
+                }
+            });
+
+            return completion.Task;
+        }
+
+        public void FlushAll()
+        {
+            while (actions.Count > 0)
+            {
+                actions.Dequeue()();
+            }
         }
     }
 

@@ -566,5 +566,28 @@ public sealed partial class MainPage : Page
 
             dispatcherQueue.TryEnqueue(() => action());
         }
+
+        public Task EnqueueAsync(Action action)
+        {
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            if (!dispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    action();
+                    completion.SetResult();
+                }
+                catch (Exception ex)
+                {
+                    completion.SetException(ex);
+                }
+            }))
+            {
+                completion.SetException(new InvalidOperationException("Failed to enqueue view-model action."));
+            }
+
+            return completion.Task;
+        }
     }
 }
