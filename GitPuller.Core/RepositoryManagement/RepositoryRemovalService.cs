@@ -116,6 +116,18 @@ public sealed class RepositoryRemovalService
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(removedRepository);
 
+        var removedPath = PreparePermanentDelete(config, removedRepository);
+        if (Directory.Exists(removedPath))
+        {
+            Directory.Delete(removedPath, recursive: true);
+        }
+    }
+
+    public string PreparePermanentDelete(LibraryConfig config, RemovedRepositoryRecord removedRepository)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(removedRepository);
+
         EnsureMutableCollections(config);
 
         var libraryRoot = GetLibraryRoot(config);
@@ -123,12 +135,8 @@ public sealed class RepositoryRemovalService
         var removedPath = GitRepositorySupport.NormalizeRepoPath(removedRepository.RemovedPath);
         EnsurePathIsUnderRoot(removedPath, removedRoot, "Removed repository path");
 
-        if (Directory.Exists(removedPath))
-        {
-            Directory.Delete(removedPath, recursive: true);
-        }
-
         RemoveRemovedMetadata(config, removedRepository);
+        return removedPath;
     }
 
     private static string GetLibraryRoot(LibraryConfig config)

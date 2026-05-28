@@ -41,11 +41,18 @@ public sealed record RepositoryAddWorkflowResult(
     public bool Succeeded => CloneResult.Succeeded && LibraryLoadResult is not null;
 }
 
+public interface IRepositoryManagementConfigStore
+{
+    Task<LibraryConfig> LoadAsync(string libraryRoot, CancellationToken cancellationToken);
+
+    Task SaveAsync(LibraryConfig config, CancellationToken cancellationToken);
+}
+
 public sealed class CoreRepositoryManagementService : IRepositoryManagementService
 {
     private const string RestoreValidationRemoteUrl = "https://example.invalid/restore.git";
 
-    private readonly LibraryConfigStore configStore;
+    private readonly IRepositoryManagementConfigStore configStore;
     private readonly GitRepositoryScanner scanner;
     private readonly RepositoryCloneService cloneService;
     private readonly RepositoryRemovalService removalService;
@@ -55,8 +62,21 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         GitRepositoryScanner? scanner = null,
         RepositoryCloneService? cloneService = null,
         RepositoryRemovalService? removalService = null)
+        : this(
+            new LibraryConfigStoreAdapter(configStore ?? new LibraryConfigStore()),
+            scanner,
+            cloneService,
+            removalService)
     {
-        this.configStore = configStore ?? new LibraryConfigStore();
+    }
+
+    public CoreRepositoryManagementService(
+        IRepositoryManagementConfigStore configStore,
+        GitRepositoryScanner? scanner = null,
+        RepositoryCloneService? cloneService = null,
+        RepositoryRemovalService? removalService = null)
+    {
+        this.configStore = configStore;
         this.scanner = scanner ?? new GitRepositoryScanner();
         this.cloneService = cloneService ?? new RepositoryCloneService();
         this.removalService = removalService ?? new RepositoryRemovalService();
@@ -88,7 +108,15 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
 
         EnsureMutableCollections(config);
         AddRepositoryMetadata(config, cloneResult.Repository);
-        await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            TryDeleteDirectory(cloneResult.Repository.Path);
+            throw;
+        }
 
         var savedConfig = await configStore.LoadAsync(config.LibraryRoot, cancellationToken).ConfigureAwait(false);
         return new RepositoryAddWorkflowResult(cloneResult, CreateLoadResult(savedConfig));
@@ -119,8 +147,16 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         ArgumentNullException.ThrowIfNull(removedRepository);
 
         var config = await configStore.LoadAsync(libraryRoot, cancellationToken).ConfigureAwait(false);
-        removalService.RestoreRepository(config, removedRepository);
-        await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
+        var restored = removalService.RestoreRepository(config, removedRepository);
+        try
+        {
+            await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            TryMoveDirectory(restored.Path, removedRepository.RemovedPath);
+            throw;
+        }
 
         var savedConfig = await configStore.LoadAsync(config.LibraryRoot, cancellationToken).ConfigureAwait(false);
         return CreateLoadResult(savedConfig);
@@ -151,12 +187,20 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
             throw new InvalidOperationException(BuildDiagnosticMessage(validationPreview.Diagnostic));
         }
 
-        removalService.RestoreRepositoryAs(
+        var restored = removalService.RestoreRepositoryAs(
             config,
             removedRepository,
             validationPreview.Category,
             validationPreview.TargetPath);
-        await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            TryMoveDirectory(restored.Path, removedRepository.RemovedPath);
+            throw;
+        }
 
         var savedConfig = await configStore.LoadAsync(config.LibraryRoot, cancellationToken).ConfigureAwait(false);
         return CreateLoadResult(savedConfig);
@@ -171,8 +215,12 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         ArgumentNullException.ThrowIfNull(removedRepository);
 
         var config = await configStore.LoadAsync(libraryRoot, cancellationToken).ConfigureAwait(false);
-        removalService.PermanentlyDelete(config, removedRepository);
+        var removedPath = removalService.PreparePermanentDelete(config, removedRepository);
         await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
+        if (Directory.Exists(removedPath))
+        {
+            Directory.Delete(removedPath, recursive: true);
+        }
 
         var savedConfig = await configStore.LoadAsync(config.LibraryRoot, cancellationToken).ConfigureAwait(false);
         return CreateLoadResult(savedConfig);
@@ -237,6 +285,63 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         }
     }
 
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                ClearReadOnlyAttributes(path);
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static void TryMoveDirectory(string sourcePath, string destinationPath)
+    {
+        try
+        {
+            if (!Directory.Exists(sourcePath) || Directory.Exists(destinationPath) || File.Exists(destinationPath))
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            Directory.Move(sourcePath, destinationPath);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void ClearReadOnlyAttributes(string directoryPath)
+    {
+        foreach (var fileSystemPath in Directory.EnumerateFileSystemEntries(
+            directoryPath,
+            "*",
+            SearchOption.AllDirectories))
+        {
+            try
+            {
+                File.SetAttributes(fileSystemPath, File.GetAttributes(fileSystemPath) & ~FileAttributes.ReadOnly);
+            }
+            catch
+            {
+            }
+        }
+
+        try
+        {
+            File.SetAttributes(directoryPath, File.GetAttributes(directoryPath) & ~FileAttributes.ReadOnly);
+        }
+        catch
+        {
+        }
+    }
+
     private static string BuildDiagnosticMessage(FailureDiagnostic? diagnostic)
     {
         if (diagnostic is null)
@@ -245,5 +350,25 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         }
 
         return $"{diagnostic.Title}: {diagnostic.Explanation} {diagnostic.Evidence}".Trim();
+    }
+
+    private sealed class LibraryConfigStoreAdapter : IRepositoryManagementConfigStore
+    {
+        private readonly LibraryConfigStore inner;
+
+        public LibraryConfigStoreAdapter(LibraryConfigStore inner)
+        {
+            this.inner = inner;
+        }
+
+        public Task<LibraryConfig> LoadAsync(string libraryRoot, CancellationToken cancellationToken)
+        {
+            return inner.LoadAsync(libraryRoot, cancellationToken);
+        }
+
+        public Task SaveAsync(LibraryConfig config, CancellationToken cancellationToken)
+        {
+            return inner.SaveAsync(config, cancellationToken);
+        }
     }
 }

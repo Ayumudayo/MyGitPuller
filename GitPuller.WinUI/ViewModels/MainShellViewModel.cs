@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Text.RegularExpressions;
 using System.Windows.Input;
 using GitPuller;
 using GitPuller_WinUI.Services;
@@ -438,7 +439,7 @@ public sealed class MainShellViewModel : ObservableObject
         && !string.IsNullOrWhiteSpace(SelectedResult?.Path);
     public bool CanOpenSelectedRemote =>
         launcher is not null
-        && IsLaunchableUri(SelectedResult?.RemoteUrl);
+        && TryGetBrowserRemoteUri(SelectedResult?.RemoteUrl, out _);
     public bool CanOpenLibraryFolder =>
         launcher is not null
         && !string.IsNullOrWhiteSpace(LibraryRoot);
@@ -829,7 +830,7 @@ public sealed class MainShellViewModel : ObservableObject
 
     public Task OpenSelectedRemoteAsync()
     {
-        return LaunchUriAsync(SelectedResult?.RemoteUrl, "repository remote");
+        return LaunchRemoteAsync(SelectedResult?.RemoteUrl, "repository remote");
     }
 
     public Task OpenLibraryFolderAsync()
@@ -854,7 +855,7 @@ public sealed class MainShellViewModel : ObservableObject
 
     public Task OpenRemovedRemoteAsync(RemovedRepositoryViewModel? removedRepository)
     {
-        return LaunchUriAsync(removedRepository?.RemoteUrl, "removed repository remote");
+        return LaunchRemoteAsync(removedRepository?.RemoteUrl, "removed repository remote");
     }
 
     public static MainShellViewModel CreateDefault(IViewModelDispatcher? dispatcher = null)
@@ -1238,9 +1239,9 @@ public sealed class MainShellViewModel : ObservableObject
         }
     }
 
-    private async Task LaunchUriAsync(string? uri, string description)
+    private async Task LaunchRemoteAsync(string? remoteUrl, string description)
     {
-        if (launcher is null || !IsLaunchableUri(uri))
+        if (launcher is null || !TryGetBrowserRemoteUri(remoteUrl, out var browserUrl))
         {
             SetLaunchError($"Cannot open {description}.");
             return;
@@ -1249,14 +1250,14 @@ public sealed class MainShellViewModel : ObservableObject
         ClearLaunchMessages();
         try
         {
-            var launched = await launcher.LaunchUriAsync(uri!);
+            var launched = await launcher.LaunchUriAsync(browserUrl);
             if (launched)
             {
                 SetLaunchStatus($"Opened {description}.");
             }
             else
             {
-                SetLaunchError($"Could not open {description}: {uri}");
+                SetLaunchError($"Could not open {description}: {browserUrl}");
             }
         }
         catch (Exception ex)
@@ -1305,11 +1306,91 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(HasLaunchStatus));
     }
 
-    private static bool IsLaunchableUri(string? uri)
+    private static bool TryGetBrowserRemoteUri(string? remoteUrl, out string browserUrl)
     {
-        return Uri.TryCreate(uri, UriKind.Absolute, out var parsedUri)
-            && (parsedUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
-                || parsedUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
+        browserUrl = string.Empty;
+        var trimmedRemote = remoteUrl?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedRemote))
+        {
+            return false;
+        }
+
+        if (Uri.TryCreate(trimmedRemote, UriKind.Absolute, out var parsedUri))
+        {
+            if (parsedUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || parsedUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            {
+                browserUrl = trimmedRemote;
+                return true;
+            }
+
+            if (parsedUri.Scheme.Equals("ssh", StringComparison.OrdinalIgnoreCase)
+                && TryMapBrowserHost(parsedUri.Host, out var browserHost))
+            {
+                var remotePath = parsedUri.AbsolutePath.TrimStart('/');
+                return TryBuildBrowserUrl(browserHost, remotePath, out browserUrl);
+            }
+
+            return false;
+        }
+
+        var scpLikeMatch = Regex.Match(
+            trimmedRemote,
+            @"^(?:(?<user>[^@\s:]+)@)?(?<host>[^:\s]+):(?<path>[^\\]+)$",
+            RegexOptions.CultureInvariant);
+        if (!scpLikeMatch.Success)
+        {
+            return false;
+        }
+
+        var path = scpLikeMatch.Groups["path"].Value;
+        if (path.IndexOf('/') < 0 || !TryMapBrowserHost(scpLikeMatch.Groups["host"].Value, out var mappedHost))
+        {
+            return false;
+        }
+
+        return TryBuildBrowserUrl(mappedHost, path, out browserUrl);
+    }
+
+    private static bool TryMapBrowserHost(string host, out string browserHost)
+    {
+        browserHost = string.Empty;
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            return false;
+        }
+
+        if (host.Equals("github-bf", StringComparison.OrdinalIgnoreCase))
+        {
+            browserHost = "github.com";
+            return true;
+        }
+
+        if (host.Contains('.', StringComparison.Ordinal))
+        {
+            browserHost = host;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryBuildBrowserUrl(string browserHost, string remotePath, out string browserUrl)
+    {
+        browserUrl = string.Empty;
+        var normalizedPath = remotePath.Trim().TrimStart('/').TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+        {
+            return false;
+        }
+
+        if (normalizedPath.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+        {
+            normalizedPath = normalizedPath[..^4];
+        }
+
+        browserUrl = $"https://{browserHost}/{normalizedPath}";
+        return Uri.TryCreate(browserUrl, UriKind.Absolute, out _);
     }
 
     private async Task<GitPullerLibraryLoadResult> LoadLibraryForCurrentRootAsync(

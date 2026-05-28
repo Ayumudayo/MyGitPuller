@@ -145,6 +145,23 @@ public sealed class RepositoryManagementTests : IDisposable
     }
 
     [Fact]
+    public void PreparePermanentDelete_RemovesMetadataAndReturnsGuardedPathWithoutDeletingFolder()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var repositoryPath = CreateRepositoryDirectory(libraryRoot, "Plugins", "RepoA");
+        var repository = new RepositoryDescriptor(repositoryPath, "RepoA", "Plugins", "git@github.com:example/repo-a.git");
+        var config = CreateConfig(libraryRoot, repository);
+        var service = new RepositoryRemovalService();
+        var removed = service.RemoveRepository(config, repository);
+
+        var removedPath = service.PreparePermanentDelete(config, removed);
+
+        Assert.Equal(removed.RemovedPath, removedPath);
+        Assert.True(Directory.Exists(removed.RemovedPath));
+        Assert.Empty(config.RemovedRepositories);
+    }
+
+    [Fact]
     public void RemoveRepository_InitializesNullCollectionsBeforeFilesystemMutation()
     {
         var libraryRoot = Path.Combine(tempRoot, "Library");

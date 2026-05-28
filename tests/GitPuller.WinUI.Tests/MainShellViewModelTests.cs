@@ -394,6 +394,106 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task CoreRepositoryManagementService_CloneRollsBackRepositoryFolder_WhenConfigSaveFails()
+    {
+        var scenarioRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        var libraryRoot = Path.Combine(scenarioRoot, "Library");
+        var remotePath = CreateBareRemoteRepository(scenarioRoot, "RepoA");
+        var store = new FailingRepositoryManagementConfigStore(new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins"]
+        })
+        {
+            ThrowOnSave = true
+        };
+        var service = new CoreRepositoryManagementService(store);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CloneRepositoryAsync(
+            new RepositoryAddRequest(libraryRoot, "Plugins", remotePath),
+            new GitPullerOptions(),
+            CancellationToken.None));
+
+        Assert.False(Directory.Exists(Path.Combine(libraryRoot, "Plugins", "RepoA")));
+        Assert.Empty(store.PersistedConfig.Repositories);
+    }
+
+    [Fact]
+    public async Task CoreRepositoryManagementService_RestoreRollsBackMovedFolder_WhenConfigSaveFails()
+    {
+        var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        var removed = RemovedRecord("RestoreRollback", libraryRoot);
+        CreateRepositoryDirectory(removed.RemovedPath);
+        var store = new FailingRepositoryManagementConfigStore(new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins"],
+            RemovedRepositories = [removed]
+        })
+        {
+            ThrowOnSave = true
+        };
+        var service = new CoreRepositoryManagementService(store);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RestoreRepositoryAsync(libraryRoot, removed, CancellationToken.None));
+
+        Assert.True(Directory.Exists(removed.RemovedPath));
+        Assert.False(Directory.Exists(removed.OriginalPath));
+        Assert.Single(store.PersistedConfig.RemovedRepositories);
+    }
+
+    [Fact]
+    public async Task CoreRepositoryManagementService_RestoreAsRollsBackMovedFolder_WhenConfigSaveFails()
+    {
+        var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        var removed = RemovedRecord("RestoreAsRollback", libraryRoot);
+        var alternatePath = Path.Combine(libraryRoot, "Tools", "RestoreAsLocal");
+        CreateRepositoryDirectory(removed.RemovedPath);
+        var store = new FailingRepositoryManagementConfigStore(new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins", "Tools"],
+            RemovedRepositories = [removed]
+        })
+        {
+            ThrowOnSave = true
+        };
+        var service = new CoreRepositoryManagementService(store);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RestoreRepositoryAsAsync(libraryRoot, removed, "Tools", "RestoreAsLocal", CancellationToken.None));
+
+        Assert.True(Directory.Exists(removed.RemovedPath));
+        Assert.False(Directory.Exists(alternatePath));
+        Assert.Single(store.PersistedConfig.RemovedRepositories);
+    }
+
+    [Fact]
+    public async Task CoreRepositoryManagementService_PermanentDeleteDoesNotDeleteFolder_WhenConfigSaveFails()
+    {
+        var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        var removed = RemovedRecord("DeleteRollback", libraryRoot);
+        CreateRepositoryDirectory(removed.RemovedPath);
+        var store = new FailingRepositoryManagementConfigStore(new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins"],
+            RemovedRepositories = [removed]
+        })
+        {
+            ThrowOnSave = true
+        };
+        var service = new CoreRepositoryManagementService(store);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.PermanentlyDeleteRepositoryAsync(libraryRoot, removed, CancellationToken.None));
+
+        Assert.True(Directory.Exists(removed.RemovedPath));
+        Assert.Single(store.PersistedConfig.RemovedRepositories);
+    }
+
+    [Fact]
     public async Task LauncherActions_InvokeInjectedLauncherForRepositoryAndRemovedTargets()
     {
         var launcher = new FakeFileSystemLauncher();
@@ -418,6 +518,45 @@ public sealed class MainShellViewModelTests
         Assert.Contains(removedRecord.OriginalPath, launcher.LaunchedPaths);
         Assert.Contains("https://github.com/example/OpenMe.git", launcher.LaunchedUris);
         Assert.Contains(removedRecord.RemoteUrl, launcher.LaunchedUris);
+    }
+
+    [Theory]
+    [InlineData("git@github.com:owner/repo.git", "https://github.com/owner/repo")]
+    [InlineData("git@github-bf:bloooowfish/MyGitPuller.git", "https://github.com/bloooowfish/MyGitPuller")]
+    [InlineData("ssh://git@github.com/owner/repo.git", "https://github.com/owner/repo")]
+    public async Task LauncherActions_NormalizesBrowserableGitRemotes(string remoteUrl, string expectedBrowserUrl)
+    {
+        var launcher = new FakeFileSystemLauncher();
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            [new CategoryNavigationItemViewModel("Plugins", Path.Combine(TestRoot, "Plugins"), 1, 0)],
+            [Result("RemoteRepo", RepositoryResultStatus.Updated, remoteUrl: remoteUrl)],
+            [],
+            launcher: launcher);
+
+        Assert.True(viewModel.CanOpenSelectedRemote);
+
+        await viewModel.OpenSelectedRemoteAsync();
+
+        Assert.Contains(expectedBrowserUrl, launcher.LaunchedUris);
+    }
+
+    [Fact]
+    public async Task LauncherActions_HidesRemoteAction_WhenGitRemoteHasNoBrowserMapping()
+    {
+        var launcher = new FakeFileSystemLauncher();
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            [new CategoryNavigationItemViewModel("Plugins", Path.Combine(TestRoot, "Plugins"), 1, 0)],
+            [Result("RemoteRepo", RepositoryResultStatus.Updated, remoteUrl: "git@internal:owner/repo.git")],
+            [],
+            launcher: launcher);
+
+        Assert.False(viewModel.CanOpenSelectedRemote);
+
+        await viewModel.OpenSelectedRemoteAsync();
+
+        Assert.Empty(launcher.LaunchedUris);
     }
 
     [Fact]
@@ -689,13 +828,14 @@ public sealed class MainShellViewModelTests
         string name,
         RepositoryResultStatus status,
         FailureDiagnostic? diagnostic = null,
-        string category = "Plugins")
+        string category = "Plugins",
+        string? remoteUrl = null)
     {
         return new RepositoryResultViewModel(
             name,
             category,
             Path.Combine(TestRoot, category, name),
-            $"https://github.com/example/{name}.git",
+            remoteUrl ?? $"https://github.com/example/{name}.git",
             status,
             newCommitsCount: status == RepositoryResultStatus.Updated ? 3 : 0,
             elapsed: TimeSpan.FromSeconds(2),
@@ -776,15 +916,81 @@ public sealed class MainShellViewModelTests
 
     private static RemovedRepositoryRecord RemovedRecord(string name)
     {
+        return RemovedRecord(name, TestRoot);
+    }
+
+    private static RemovedRepositoryRecord RemovedRecord(string name, string libraryRoot)
+    {
         return new RemovedRepositoryRecord
         {
             Name = name,
             Category = "Plugins",
-            OriginalPath = Path.Combine(TestRoot, "Plugins", name),
-            RemovedPath = Path.Combine(TestRoot, ".mygitpuller", "removed", "Plugins", name),
+            OriginalPath = Path.Combine(libraryRoot, "Plugins", name),
+            RemovedPath = Path.Combine(libraryRoot, ".mygitpuller", "removed", "Plugins", name),
             RemoteUrl = $"https://github.com/example/{name}.git",
             RemovedAt = DateTimeOffset.UtcNow
         };
+    }
+
+    private static void CreateRepositoryDirectory(string repositoryPath)
+    {
+        Directory.CreateDirectory(Path.Combine(repositoryPath, ".git"));
+        File.WriteAllText(Path.Combine(repositoryPath, "README.md"), Path.GetFileName(repositoryPath));
+    }
+
+    private static string CreateBareRemoteRepository(string scenarioRoot, string repositoryName)
+    {
+        var remotePath = Path.Combine(scenarioRoot, $"{repositoryName}.git");
+        var seedPath = Path.Combine(scenarioRoot, "seed");
+
+        Directory.CreateDirectory(scenarioRoot);
+
+        RunGit(scenarioRoot, "init", "--bare", remotePath);
+        RunGit(scenarioRoot, "clone", remotePath, seedPath);
+        RunGit(seedPath, "config", "user.name", "Test User");
+        RunGit(seedPath, "config", "user.email", "test@example.invalid");
+        RunGit(seedPath, "checkout", "-b", "main");
+        File.WriteAllText(Path.Combine(seedPath, "README.md"), "seed");
+        RunGit(seedPath, "add", "README.md");
+        RunGit(seedPath, "commit", "-m", "Initial commit");
+        RunGit(seedPath, "push", "-u", "origin", "main");
+        RunGit(remotePath, "symbolic-ref", "HEAD", "refs/heads/main");
+
+        return Path.GetFullPath(remotePath);
+    }
+
+    private static void RunGit(string workingDirectory, params string[] arguments)
+    {
+        var processStartInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "git",
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        foreach (var argument in arguments)
+        {
+            processStartInfo.ArgumentList.Add(argument);
+        }
+
+        processStartInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
+        processStartInfo.Environment["GCM_INTERACTIVE"] = "never";
+
+        using var process = System.Diagnostics.Process.Start(processStartInfo);
+        Assert.NotNull(process);
+
+        var standardOutput = process.StandardOutput.ReadToEndAsync();
+        var standardError = process.StandardError.ReadToEndAsync();
+        Assert.True(process.WaitForExit(30000), $"git command timed out: git {string.Join(' ', arguments)}");
+        Task.WaitAll(standardOutput, standardError);
+
+        var output = (standardOutput.Result + Environment.NewLine + standardError.Result).Trim();
+        Assert.True(
+            process.ExitCode == 0,
+            $"git command failed ({process.ExitCode}): git {string.Join(' ', arguments)}{Environment.NewLine}{output}");
     }
 
     private static GitPullerLibraryLoadResult LoadResult(params RepositoryDescriptor[] repositories)
@@ -839,6 +1045,59 @@ public sealed class MainShellViewModelTests
                 changedProperties.Add(args.PropertyName);
             }
         };
+    }
+
+    private sealed class FailingRepositoryManagementConfigStore : IRepositoryManagementConfigStore
+    {
+        public FailingRepositoryManagementConfigStore(LibraryConfig persistedConfig)
+        {
+            PersistedConfig = CloneConfig(persistedConfig);
+        }
+
+        public LibraryConfig PersistedConfig { get; private set; }
+        public bool ThrowOnSave { get; set; }
+
+        public Task<LibraryConfig> LoadAsync(string libraryRoot, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(CloneConfig(PersistedConfig));
+        }
+
+        public Task SaveAsync(LibraryConfig config, CancellationToken cancellationToken)
+        {
+            if (ThrowOnSave)
+            {
+                throw new InvalidOperationException("Injected config save failure.");
+            }
+
+            PersistedConfig = CloneConfig(config);
+            return Task.CompletedTask;
+        }
+
+        private static LibraryConfig CloneConfig(LibraryConfig config)
+        {
+            return new LibraryConfig
+            {
+                LibraryRoot = config.LibraryRoot,
+                Categories = [.. config.Categories],
+                Repositories = config.Repositories.Select(repository => new LibraryRepositoryConfig
+                {
+                    Name = repository.Name,
+                    Path = repository.Path,
+                    Category = repository.Category,
+                    RemoteUrl = repository.RemoteUrl
+                }).ToList(),
+                RemovedRepositories = config.RemovedRepositories.Select(removed => new RemovedRepositoryRecord
+                {
+                    Name = removed.Name,
+                    OriginalPath = removed.OriginalPath,
+                    RemovedPath = removed.RemovedPath,
+                    Category = removed.Category,
+                    RemoteUrl = removed.RemoteUrl,
+                    RemovedAt = removed.RemovedAt
+                }).ToList(),
+                DefaultOptions = config.DefaultOptions
+            };
+        }
     }
 
     private sealed class FakeRepositoryManagementService : IRepositoryManagementService
