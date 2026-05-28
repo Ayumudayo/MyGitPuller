@@ -16,6 +16,10 @@
     <Content Remove="GitPuller.WinUI\**" />
     <EmbeddedResource Remove="GitPuller.WinUI\**" />
     <None Remove="GitPuller.WinUI\**" />
+    <Compile Remove="tests\**" />
+    <Content Remove="tests\**" />
+    <EmbeddedResource Remove="tests\**" />
+    <None Remove="tests\**" />
   </ItemGroup>
 
   <ItemGroup>

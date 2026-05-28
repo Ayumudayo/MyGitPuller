@@ -9,6 +9,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GitPuller.WinUI", "GitPulle
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GitPuller.Core", "GitPuller.Core\GitPuller.Core.csproj", "{04CA3226-30DD-48DE-B458-E4411E04C22D}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GitPuller.Core.Tests", "tests\GitPuller.Core.Tests\GitPuller.Core.Tests.csproj", "{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,9 +73,28 @@ Global
 		{04CA3226-30DD-48DE-B458-E4411E04C22D}.Release|x64.Build.0 = Release|Any CPU
 		{04CA3226-30DD-48DE-B458-E4411E04C22D}.Release|x86.ActiveCfg = Release|Any CPU
 		{04CA3226-30DD-48DE-B458-E4411E04C22D}.Release|x86.Build.0 = Release|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Debug|ARM64.ActiveCfg = Debug|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Debug|ARM64.Build.0 = Debug|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Debug|x64.Build.0 = Debug|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Debug|x86.Build.0 = Debug|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Release|ARM64.ActiveCfg = Release|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Release|ARM64.Build.0 = Release|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Release|x64.ActiveCfg = Release|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Release|x64.Build.0 = Release|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Release|x86.ActiveCfg = Release|Any CPU
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{4D435A9D-5A93-4AF0-BC4E-2A5226CF8903} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {111982AA-5C2A-4603-8066-0A30A11F4E3B}
