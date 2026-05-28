@@ -133,6 +133,22 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public void FolderTree_MainPageUsesRuntimeBindingsForTreeViewNodeContent()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+        var treeTemplateStart = xaml.IndexOf("<TreeView.ItemTemplate>", StringComparison.Ordinal);
+        var treeTemplateEnd = xaml.IndexOf("</TreeView.ItemTemplate>", StringComparison.Ordinal);
+
+        Assert.True(treeTemplateStart >= 0);
+        Assert.True(treeTemplateEnd > treeTemplateStart);
+
+        var treeTemplate = xaml[treeTemplateStart..treeTemplateEnd];
+        Assert.DoesNotContain("x:DataType=\"vm:RepositoryFolderNodeViewModel\"", treeTemplate, StringComparison.Ordinal);
+        Assert.DoesNotContain("{x:Bind", treeTemplate, StringComparison.Ordinal);
+        Assert.Contains("{Binding Content.Name}", treeTemplate, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RepositoryResult_FromResult_UsesWarningDiagnosticForSuccessfulWarningLog()
     {
         var result = new RepoResult

@@ -241,12 +241,12 @@
                         SelectionChanged="FolderTreeView_SelectionChanged"
                         SelectionMode="Single">
                         <TreeView.ItemTemplate>
-                            <DataTemplate x:DataType="vm:RepositoryFolderNodeViewModel">
+                            <DataTemplate>
                                 <Grid
                                     MinWidth="0"
                                     Padding="0,4"
                                     ColumnSpacing="10"
-                                    ToolTipService.ToolTip="{x:Bind AttentionText}">
+                                    ToolTipService.ToolTip="{Binding Content.AttentionText}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
@@ -265,7 +265,7 @@
                                         <TextBlock
                                             FontWeight="SemiBold"
                                             Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{x:Bind Name}" />
+                                            Text="{Binding Content.Name}" />
                                         <StackPanel
                                             Orientation="Horizontal"
                                             Spacing="10">
@@ -279,7 +279,7 @@
                                                 <TextBlock
                                                     Foreground="{ThemeResource GitPullerFolderAccentBrush}"
                                                     Style="{StaticResource CaptionTextBlockStyle}"
-                                                    Text="{x:Bind RepositoryCount}" />
+                                                    Text="{Binding Content.RepositoryCount}" />
                                             </StackPanel>
                                             <StackPanel
                                                 Orientation="Horizontal"
@@ -291,13 +291,13 @@
                                                 <TextBlock
                                                     Foreground="{ThemeResource GitPullerWarningBrush}"
                                                     Style="{StaticResource CaptionTextBlockStyle}"
-                                                    Text="{x:Bind AttentionCount}" />
+                                                    Text="{Binding Content.AttentionCount}" />
                                             </StackPanel>
                                         </StackPanel>
                                         <TextBlock
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                             Style="{StaticResource CaptionTextBlockStyle}"
-                                            Text="{x:Bind AttentionText}"
+                                            Text="{Binding Content.AttentionText}"
                                             TextWrapping="WrapWholeWords" />
                                     </StackPanel>
                                 </Grid>
