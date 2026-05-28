@@ -33,11 +33,12 @@ public static class GitFailureClassifier
             .Where(text => !string.IsNullOrWhiteSpace(text))
             .ToArray();
 
-        var hasStaleLockCleanupSignal = TryFindMatch(logTexts, IsStaleLockCleanupSignalText, out var staleLockEvidence);
+        var hasStaleLockRemoved = TryFindMatch(logTexts, IsStaleLockRemovedText, out var staleLockRemovedEvidence);
+        var hasStaleLockCleanupFailure = TryFindMatch(logTexts, IsStaleLockCleanupFailureText, out var staleLockCleanupFailureEvidence);
 
         if (!result.Failed)
         {
-            if (hasStaleLockCleanupSignal)
+            if (hasStaleLockRemoved)
             {
                 return CreateDiagnostic(
                     category: FailureCategory.StaleLockRemoved,
@@ -46,9 +47,14 @@ public static class GitFailureClassifier
                     title: "Stale Git lock file was removed",
                     explanation: "A stale Git lock file was removed and the repository completed without a blocking error.",
                     suggestedAction: "No retry is needed unless later operations fail again.",
-                    evidence: staleLockEvidence,
+                    evidence: staleLockRemovedEvidence,
                     result,
                     relatedCommandSelector: null);
+            }
+
+            if (hasStaleLockCleanupFailure)
+            {
+                return CreateRecentLockDiagnostic(staleLockCleanupFailureEvidence, result);
             }
 
             return CreateDiagnostic(
@@ -147,7 +153,7 @@ public static class GitFailureClassifier
                 relatedCommandSelector: operation => operation.ExitCode != 0 || operation.TimedOut);
         }
 
-        if (hasStaleLockCleanupSignal)
+        if (hasStaleLockRemoved)
         {
             return CreateDiagnostic(
                 category: FailureCategory.StaleLockRemoved,
@@ -156,9 +162,14 @@ public static class GitFailureClassifier
                 title: "Stale Git lock file was removed",
                 explanation: "A stale Git lock file was removed before the repository still failed, and no later specific Git failure category matched.",
                 suggestedAction: "Retry this repository once. If it fails again, inspect the latest Git error before continuing.",
-                evidence: staleLockEvidence,
+                evidence: staleLockRemovedEvidence,
                 result,
                 relatedCommandSelector: operation => operation.TimedOut || operation.ExitCode != 0);
+        }
+
+        if (hasStaleLockCleanupFailure)
+        {
+            return CreateRecentLockDiagnostic(staleLockCleanupFailureEvidence, result);
         }
 
         var unknownEvidence = logTexts.LastOrDefault()
@@ -199,6 +210,20 @@ public static class GitFailureClassifier
             RelatedCommand: GetRelatedCommand(result, relatedCommandSelector));
     }
 
+    private static FailureDiagnostic CreateRecentLockDiagnostic(string evidence, RepoResult result)
+    {
+        return CreateDiagnostic(
+            category: FailureCategory.LockExistsRecent,
+            retryPolicy: RetryPolicy.PossibleAfterCheck,
+            severity: result.Failed ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
+            title: "Git lock needs review",
+            explanation: "Git reported a lock file that still needs a user check before retrying.",
+            suggestedAction: "Check whether another Git process is still running or whether the lock file can be removed before retrying.",
+            evidence: evidence,
+            result,
+            relatedCommandSelector: operation => operation.ExitCode != 0 || operation.TimedOut);
+    }
+
     private static string? GetRelatedCommand(RepoResult result, Func<RepoOperation, bool>? relatedCommandSelector)
     {
         if (result.Operations.Count == 0)
@@ -237,7 +262,7 @@ public static class GitFailureClassifier
 
     private static bool IsRecentLockFailureText(string text)
     {
-        if (IsStaleLockCleanupSignalText(text))
+        if (IsStaleLockRemovedText(text) || IsStaleLockCleanupFailureText(text))
         {
             return false;
         }
@@ -247,10 +272,14 @@ public static class GitFailureClassifier
             || Contains(text, "another git process seems to be running");
     }
 
-    private static bool IsStaleLockCleanupSignalText(string text)
+    private static bool IsStaleLockRemovedText(string text)
     {
-        return Contains(text, "removed stale git lock file")
-            || Contains(text, "could not remove stale git lock file");
+        return Contains(text, "removed stale git lock file");
+    }
+
+    private static bool IsStaleLockCleanupFailureText(string text)
+    {
+        return Contains(text, "could not remove stale git lock file");
     }
 
     private static bool IsAuthenticationFailureText(string text)

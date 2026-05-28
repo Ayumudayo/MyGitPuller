@@ -56,6 +56,21 @@ public sealed class GitFailureClassifierTests : IDisposable
     }
 
     [Fact]
+    public void Classify_UsesRecentLockCheck_WhenCleanupFailureIsOnlyFailureSignal()
+    {
+        var result = CreateResult(
+            failed: true,
+            CreateLogItem("Could not remove stale Git lock file 'C:\\Repos\\RepoA\\.git\\index.lock': Access to the path is denied.", isWarning: true));
+
+        var diagnostic = GitFailureClassifier.Classify(result);
+
+        Assert.Equal(FailureCategory.LockExistsRecent, diagnostic.Category);
+        Assert.Equal(RetryPolicy.PossibleAfterCheck, diagnostic.RetryPolicy);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains("Could not remove stale Git lock file", diagnostic.Evidence, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Classify_PrefersAuthenticationFailure_OverEarlierStaleLockWarning()
     {
         var result = CreateResult(
