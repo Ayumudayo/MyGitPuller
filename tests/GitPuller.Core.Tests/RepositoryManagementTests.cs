@@ -434,6 +434,25 @@ public sealed class RepositoryManagementTests : IDisposable
         Assert.Empty(inventory.Repositories);
     }
 
+    [Fact]
+    public void ScanLibraryRoot_WhenLibraryRootIsGitRepo_ReturnsOnlyChildRepositoriesOutsideMyGitPuller()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        Directory.CreateDirectory(Path.Combine(libraryRoot, ".git"));
+        var childRepositoryPath = CreateRepositoryDirectory(libraryRoot, "Plugins", "RepoA");
+        CreateRepositoryDirectory(Path.Combine(libraryRoot, ".mygitpuller", "removed"), "Hidden", "RepoHidden");
+
+        var scanner = new GitRepositoryScanner();
+        var inventory = scanner.ScanLibraryRoot(libraryRoot);
+
+        var repository = Assert.Single(inventory.Repositories);
+        Assert.Equal(NormalizePath(childRepositoryPath), NormalizePath(repository.Path));
+        Assert.Equal("RepoA", repository.Name);
+        Assert.Equal("Plugins", repository.Category);
+        Assert.DoesNotContain(inventory.Repositories, x => string.Equals(NormalizePath(x.Path), NormalizePath(libraryRoot), StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(inventory.Repositories, x => x.Path.Contains(".mygitpuller", StringComparison.OrdinalIgnoreCase));
+    }
+
     public void Dispose()
     {
         try

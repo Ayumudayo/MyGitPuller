@@ -89,9 +89,10 @@ internal static class GitRepositorySupport
 {
     public static List<string> FindGitRepos(string root)
     {
+        var normalizedRoot = NormalizeRepoPath(root);
         var repositories = new List<string>();
         var pending = new Stack<string>();
-        pending.Push(root);
+        pending.Push(normalizedRoot);
 
         while (pending.Count > 0)
         {
@@ -105,8 +106,11 @@ internal static class GitRepositorySupport
 
             if (IsGitRepoRoot(directory, out var isSubmoduleRepo) && !isSubmoduleRepo)
             {
-                repositories.Add(directory);
-                continue;
+                if (!string.Equals(directory, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    repositories.Add(directory);
+                    continue;
+                }
             }
 
             try
