@@ -76,6 +76,94 @@ public sealed class GitFailureClassifierTests : IDisposable
         Assert.Contains(warningLog, diagnostic.Evidence, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Classify_PrioritizesHighestPrecedenceRepositoryWarning_RegardlessOfLogOrder(bool lfsWarningFirst)
+    {
+        const string genericWarning = "Skipped remote branch with unsafe local branch name: upstream/bad";
+        const string lfsWarning = "Git LFS fetch failed:\nTimeout (60s)\nCommand: git lfs fetch --all --prune";
+
+        var warnings = lfsWarningFirst
+            ? new[]
+            {
+                CreateLogItem(lfsWarning, isWarning: true),
+                CreateLogItem(genericWarning, isWarning: true)
+            }
+            : new[]
+            {
+                CreateLogItem(genericWarning, isWarning: true),
+                CreateLogItem(lfsWarning, isWarning: true)
+            };
+
+        var result = CreateResult(failed: false, warnings);
+        result.Operations.Add(new RepoOperation
+        {
+            Command = "git fetch --all --prune --prune-tags --tags --force",
+            WorkingDirectory = result.Path,
+            ExitCode = 0
+        });
+        result.Operations.Add(new RepoOperation
+        {
+            Command = "git lfs fetch --all --prune",
+            WorkingDirectory = result.Path,
+            ExitCode = 0
+        });
+
+        var diagnostic = GitFailureClassifier.Classify(result);
+
+        Assert.Equal(FailureCategory.RepositoryWarning, diagnostic.Category);
+        Assert.Equal("Git LFS fetch warning needs review", diagnostic.Title);
+        Assert.Equal(lfsWarning, diagnostic.Evidence);
+        Assert.Equal("git lfs fetch --all --prune", diagnostic.RelatedCommand);
+    }
+
+    [Fact]
+    public void Classify_UsesEmbeddedCommandForRepositoryWarning_AndDoesNotFallBackToLaterOperation()
+    {
+        const string lfsWarning = "Git LFS fetch failed:\nTimeout (60s)\nCommand: git lfs fetch --all --prune";
+        var lfsResult = CreateResult(
+            failed: false,
+            CreateLogItem(lfsWarning, isWarning: true));
+        lfsResult.Operations.Add(new RepoOperation
+        {
+            Command = "git fetch --all --prune --prune-tags --tags --force",
+            WorkingDirectory = lfsResult.Path,
+            ExitCode = 0
+        });
+        lfsResult.Operations.Add(new RepoOperation
+        {
+            Command = "git status --short",
+            WorkingDirectory = lfsResult.Path,
+            ExitCode = 0
+        });
+
+        var lfsDiagnostic = GitFailureClassifier.Classify(lfsResult);
+
+        Assert.Equal("git lfs fetch --all --prune", lfsDiagnostic.RelatedCommand);
+
+        var genericResult = CreateResult(
+            failed: false,
+            CreateLogItem("Skipped remote branch with unsafe local branch name: upstream/bad", isWarning: true));
+        genericResult.Operations.Add(new RepoOperation
+        {
+            Command = "git fetch --all --prune --prune-tags --tags --force",
+            WorkingDirectory = genericResult.Path,
+            ExitCode = 0
+        });
+        genericResult.Operations.Add(new RepoOperation
+        {
+            Command = "git status --short",
+            WorkingDirectory = genericResult.Path,
+            ExitCode = 0
+        });
+
+        var genericDiagnostic = GitFailureClassifier.Classify(genericResult);
+
+        Assert.Equal("Repository completed with warnings", genericDiagnostic.Title);
+        Assert.Null(genericDiagnostic.RelatedCommand);
+    }
+
     [Fact]
     public void Classify_UsesStaleLockRemoved_WhenRepositoryFailedWithoutMoreSpecificMatch()
     {

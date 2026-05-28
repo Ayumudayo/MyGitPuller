@@ -238,16 +238,16 @@ public static class GitFailureClassifier
     {
         var (title, explanation, suggestedAction) = GetRepositoryWarningDetails(evidence);
 
-        return CreateDiagnostic(
-            category: FailureCategory.RepositoryWarning,
-            retryPolicy: RetryPolicy.NotApplicable,
-            severity: DiagnosticSeverity.Warning,
-            title: title,
-            explanation: explanation,
-            suggestedAction: suggestedAction,
-            evidence: evidence,
-            result,
-            relatedCommandSelector: null);
+        return new FailureDiagnostic(
+            FailureCategory.RepositoryWarning,
+            RetryPolicy.NotApplicable,
+            DiagnosticSeverity.Warning,
+            title,
+            explanation,
+            suggestedAction,
+            evidence,
+            RelatedPath: string.IsNullOrWhiteSpace(result.Path) ? null : result.Path,
+            RelatedCommand: ExtractCommandFromText(evidence));
     }
 
     private static string? GetRelatedCommand(RepoResult result, Func<RepoOperation, bool>? relatedCommandSelector)
@@ -273,17 +273,28 @@ public static class GitFailureClassifier
 
     private static bool TryGetWarningEvidence(RepoResult result, out string evidence)
     {
+        string? selectedWarning = null;
+        var selectedPriority = int.MinValue;
+
         foreach (var log in result.Logs)
         {
-            if (log.IsWarning && !string.IsNullOrWhiteSpace(log.Text))
+            if (!log.IsWarning || string.IsNullOrWhiteSpace(log.Text))
             {
-                evidence = log.Text;
-                return true;
+                continue;
             }
+
+            var priority = GetRepositoryWarningPriority(log.Text);
+            if (priority <= selectedPriority)
+            {
+                continue;
+            }
+
+            selectedWarning = log.Text;
+            selectedPriority = priority;
         }
 
-        evidence = string.Empty;
-        return false;
+        evidence = selectedWarning ?? string.Empty;
+        return selectedWarning != null;
     }
 
     private static (string Title, string Explanation, string SuggestedAction) GetRepositoryWarningDetails(string evidence)
@@ -393,7 +404,7 @@ public static class GitFailureClassifier
                 return true;
             }
 
-            var commandFromText = ExtractCommandFromTimeoutText(text);
+            var commandFromText = ExtractCommandFromText(text);
             if (IsTransportCommand(commandFromText))
             {
                 evidence = text;
@@ -413,7 +424,32 @@ public static class GitFailureClassifier
         return false;
     }
 
-    private static string? ExtractCommandFromTimeoutText(string text)
+    private static int GetRepositoryWarningPriority(string evidence)
+    {
+        if (Contains(evidence, "git lfs fetch failed"))
+        {
+            return 4;
+        }
+
+        if (Contains(evidence, "git clean failed"))
+        {
+            return 3;
+        }
+
+        if (Contains(evidence, "submodule"))
+        {
+            return 2;
+        }
+
+        if (Contains(evidence, "could not set upstream"))
+        {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private static string? ExtractCommandFromText(string text)
     {
         const string marker = "Command:";
         var markerIndex = text.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
