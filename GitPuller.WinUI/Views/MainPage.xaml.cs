@@ -9,6 +9,8 @@ namespace GitPuller_WinUI.Views;
 
 public sealed partial class MainPage : Page
 {
+    private bool suppressFolderTreeSelectionChanged;
+
     public MainShellViewModel ViewModel { get; }
 
     public MainPage()
@@ -20,6 +22,7 @@ public sealed partial class MainPage : Page
 
         Loaded += MainPage_Loaded;
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
+        RebuildFolderTree();
         UpdateRetryButtonVisibility();
     }
 
@@ -37,6 +40,16 @@ public sealed partial class MainPage : Page
             or nameof(MainShellViewModel.SelectedResultCanRetry))
         {
             UpdateRetryButtonVisibility();
+        }
+
+        if (e.PropertyName is nameof(MainShellViewModel.RepositoryTreeNodes))
+        {
+            RebuildFolderTree();
+        }
+
+        if (e.PropertyName is nameof(MainShellViewModel.SelectedFolderNode))
+        {
+            SynchronizeSelectedFolderNode();
         }
     }
 
@@ -58,6 +71,16 @@ public sealed partial class MainPage : Page
     {
         ViewModel.BeginAddRepository(ViewModel.RepositoryUrlToAdd, ViewModel.SelectedCategory?.Name);
         await ShowAddRepositoryDialogAsync();
+    }
+
+    private void FolderTreeView_SelectionChanged(TreeView sender, TreeViewSelectionChangedEventArgs args)
+    {
+        if (suppressFolderTreeSelectionChanged)
+        {
+            return;
+        }
+
+        ViewModel.SelectedFolderNode = sender.SelectedNode?.Content as RepositoryFolderNodeViewModel;
     }
 
     private async Task ShowAddRepositoryDialogAsync()
@@ -356,6 +379,102 @@ public sealed partial class MainPage : Page
         }
 
         return Math.Max(1, (int)Math.Round(value));
+    }
+
+    private void RebuildFolderTree()
+    {
+        if (FolderTreeView is null)
+        {
+            return;
+        }
+
+        suppressFolderTreeSelectionChanged = true;
+        try
+        {
+            FolderTreeView.RootNodes.Clear();
+            foreach (var rootNode in ViewModel.RepositoryTreeNodes)
+            {
+                FolderTreeView.RootNodes.Add(CreateTreeNode(rootNode));
+            }
+
+            SynchronizeSelectedFolderNode();
+        }
+        finally
+        {
+            suppressFolderTreeSelectionChanged = false;
+        }
+    }
+
+    private void SynchronizeSelectedFolderNode()
+    {
+        if (FolderTreeView is null)
+        {
+            return;
+        }
+
+        suppressFolderTreeSelectionChanged = true;
+        try
+        {
+            FolderTreeView.SelectedNode = FindSelectedTreeNode(ViewModel.SelectedFolderNode);
+        }
+        finally
+        {
+            suppressFolderTreeSelectionChanged = false;
+        }
+    }
+
+    private static TreeViewNode CreateTreeNode(RepositoryFolderNodeViewModel folderNode)
+    {
+        var treeNode = new TreeViewNode
+        {
+            Content = folderNode,
+            IsExpanded = folderNode.Children.Count > 0
+        };
+
+        foreach (var child in folderNode.Children)
+        {
+            treeNode.Children.Add(CreateTreeNode(child));
+        }
+
+        return treeNode;
+    }
+
+    private TreeViewNode? FindSelectedTreeNode(RepositoryFolderNodeViewModel? selectedFolderNode)
+    {
+        foreach (var rootNode in FolderTreeView.RootNodes)
+        {
+            var match = FindSelectedTreeNodeRecursive(rootNode, selectedFolderNode);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static TreeViewNode? FindSelectedTreeNodeRecursive(
+        TreeViewNode treeNode,
+        RepositoryFolderNodeViewModel? selectedFolderNode)
+    {
+        if (treeNode.Content is RepositoryFolderNodeViewModel folderNode
+            && selectedFolderNode is not null
+            && string.Equals(folderNode.FullCategoryName, selectedFolderNode.FullCategoryName, StringComparison.OrdinalIgnoreCase)
+            && folderNode.IsAllRepositories == selectedFolderNode.IsAllRepositories)
+        {
+            return treeNode;
+        }
+
+        foreach (var childNode in treeNode.Children)
+        {
+            var match = FindSelectedTreeNodeRecursive(childNode, selectedFolderNode);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
     }
 
     private sealed class DispatcherQueueViewModelDispatcher : IViewModelDispatcher

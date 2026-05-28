@@ -157,6 +157,67 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task RepositoryTree_BuildsNestedFoldersWithAggregateCounts()
+    {
+        var viewModel = await CreateHierarchicalTreeViewModelAsync();
+
+        var treeNodes = GetRequiredListProperty(viewModel, "RepositoryTreeNodes");
+        Assert.Equal(4, treeNodes.Count);
+
+        var allRepositoriesNode = treeNodes[0];
+        Assert.True(GetRequiredPropertyValue<bool>(allRepositoriesNode, "IsAllRepositories"));
+        Assert.Equal("All repositories", GetRequiredPropertyValue<string>(allRepositoriesNode, "Name"));
+        Assert.Equal(5, GetRequiredPropertyValue<int>(allRepositoriesNode, "RepositoryCount"));
+        Assert.Equal(2, GetRequiredPropertyValue<int>(allRepositoriesNode, "AttentionCount"));
+
+        var dalamudNode = treeNodes[1];
+        Assert.Equal("Dalamud Plugins", GetRequiredPropertyValue<string>(dalamudNode, "Name"));
+        Assert.Equal("Dalamud Plugins", GetRequiredPropertyValue<string>(dalamudNode, "FullCategoryName"));
+        Assert.Equal(Path.Combine(TestRoot, "Dalamud Plugins"), GetRequiredPropertyValue<string>(dalamudNode, "FullPath"));
+        Assert.Equal("Dalamud Plugins (2 repos)", GetRequiredPropertyValue<string>(dalamudNode, "DisplayName"));
+        Assert.Equal("1 repository needs review", GetRequiredPropertyValue<string>(dalamudNode, "AttentionText"));
+
+        var dalamudChildren = GetRequiredListProperty(dalamudNode, "Children");
+        Assert.Equal(["CombatReborn", "Punish"], dalamudChildren.Select(child => GetRequiredPropertyValue<string>(child, "Name")).ToArray());
+        Assert.All(dalamudChildren, child => Assert.Equal(1, GetRequiredPropertyValue<int>(child, "RepositoryCount")));
+
+        var ff14Node = treeNodes[2];
+        Assert.Equal("FF14_CS", GetRequiredPropertyValue<string>(ff14Node, "Name"));
+        Assert.Equal(2, GetRequiredPropertyValue<int>(ff14Node, "RepositoryCount"));
+        Assert.Equal(1, GetRequiredPropertyValue<int>(ff14Node, "AttentionCount"));
+        var ff14Children = GetRequiredListProperty(ff14Node, "Children");
+        var chronofoilNode = Assert.Single(ff14Children);
+        Assert.Equal("ProjectChronofoil", GetRequiredPropertyValue<string>(chronofoilNode, "Name"));
+        Assert.Equal("FF14_CS/ProjectChronofoil", GetRequiredPropertyValue<string>(chronofoilNode, "FullCategoryName"));
+    }
+
+    [Fact]
+    public async Task SelectedFolderNode_WhenChildFolderSelected_FiltersExactSubtreeAndUpdatesSelectedCategoryName()
+    {
+        var viewModel = await CreateHierarchicalTreeViewModelAsync();
+
+        var childNode = FindTreeNode(viewModel, "Dalamud Plugins/CombatReborn");
+        SetRequiredPropertyValue(viewModel, "SelectedFolderNode", childNode);
+
+        Assert.Equal("Dalamud Plugins/CombatReborn", viewModel.SelectedCategoryName);
+        Assert.Equal(["CombatReborn"], viewModel.VisibleResults.Select(result => result.Name).ToArray());
+    }
+
+    [Fact]
+    public async Task SelectedFolderNode_WhenParentFolderSelected_FiltersDescendants()
+    {
+        var viewModel = await CreateHierarchicalTreeViewModelAsync();
+        viewModel.ShowCleanRepositories = true;
+
+        var parentNode = FindTreeNode(viewModel, "Dalamud Plugins");
+        SetRequiredPropertyValue(viewModel, "SelectedFolderNode", parentNode);
+
+        Assert.Equal(
+            ["CombatReborn", "Punish"],
+            viewModel.VisibleResults.Select(result => result.Name).ToArray());
+    }
+
+    [Fact]
     public void RepositoryResultCollectionMutation_RaisesDerivedPropertiesAndRefreshesVisibleResults()
     {
         var viewModel = CreateViewModel(Result("updated", RepositoryResultStatus.Updated));
@@ -1064,6 +1125,53 @@ public sealed class MainShellViewModelTests
             launcher: launcher);
     }
 
+    private static async Task<MainShellViewModel> CreateHierarchicalTreeViewModelAsync()
+    {
+        var repositories = new[]
+        {
+            Descriptor("Dalamud Plugins/CombatReborn", "CombatReborn"),
+            Descriptor("Dalamud Plugins/Punish", "Punish"),
+            Descriptor("FF14_CS", "FF14_CS"),
+            Descriptor("FF14_CS/ProjectChronofoil", "ProjectChronofoil"),
+            Descriptor("Utils", "Utils")
+        };
+        var categories = new[]
+        {
+            "Dalamud Plugins",
+            "Dalamud Plugins/CombatReborn",
+            "Dalamud Plugins/Punish",
+            "FF14_CS",
+            "FF14_CS/ProjectChronofoil",
+            "Utils"
+        };
+        var syncService = new FakeGitPullerSyncService(LoadResult(new GitPullerOptions(), repositories, categories));
+        var viewModel = new MainShellViewModel(TestRoot, syncService);
+        await viewModel.InitializeAsync();
+
+        viewModel.RepositoryResults.Add(Result(
+            "CombatReborn",
+            RepositoryResultStatus.Failed,
+            category: "Dalamud Plugins/CombatReborn"));
+        viewModel.RepositoryResults.Add(Result(
+            "Punish",
+            RepositoryResultStatus.Clean,
+            category: "Dalamud Plugins/Punish"));
+        viewModel.RepositoryResults.Add(Result(
+            "FF14_CS",
+            RepositoryResultStatus.Updated,
+            category: "FF14_CS"));
+        viewModel.RepositoryResults.Add(Result(
+            "ProjectChronofoil",
+            RepositoryResultStatus.Warning,
+            category: "FF14_CS/ProjectChronofoil"));
+        viewModel.RepositoryResults.Add(Result(
+            "Utils",
+            RepositoryResultStatus.Updated,
+            category: "Utils"));
+
+        return viewModel;
+    }
+
     private static RepositoryResultViewModel Result(
         string name,
         RepositoryResultStatus status,
@@ -1285,6 +1393,66 @@ public sealed class MainShellViewModelTests
                 changedProperties.Add(args.PropertyName);
             }
         };
+    }
+
+    private static object FindTreeNode(MainShellViewModel viewModel, string fullCategoryName)
+    {
+        foreach (var rootNode in GetRequiredListProperty(viewModel, "RepositoryTreeNodes"))
+        {
+            var match = FindTreeNodeRecursive(rootNode, fullCategoryName);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        throw new Xunit.Sdk.XunitException($"Tree node '{fullCategoryName}' was not found.");
+    }
+
+    private static object? FindTreeNodeRecursive(object node, string fullCategoryName)
+    {
+        if (string.Equals(
+            GetRequiredPropertyValue<string>(node, "FullCategoryName"),
+            fullCategoryName,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return node;
+        }
+
+        foreach (var child in GetRequiredListProperty(node, "Children"))
+        {
+            var match = FindTreeNodeRecursive(child, fullCategoryName);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<object> GetRequiredListProperty(object instance, string propertyName)
+    {
+        var value = GetRequiredPropertyValue<object>(instance, propertyName);
+        return Assert.IsAssignableFrom<System.Collections.IEnumerable>(value)
+            .Cast<object>()
+            .ToArray();
+    }
+
+    private static T GetRequiredPropertyValue<T>(object instance, string propertyName)
+    {
+        var property = instance.GetType().GetProperty(propertyName);
+        Assert.NotNull(property);
+        var value = property.GetValue(instance);
+        Assert.NotNull(value);
+        return Assert.IsAssignableFrom<T>(value);
+    }
+
+    private static void SetRequiredPropertyValue(object instance, string propertyName, object value)
+    {
+        var property = instance.GetType().GetProperty(propertyName);
+        Assert.NotNull(property);
+        property.SetValue(instance, value);
     }
 
     private sealed class FailingRepositoryManagementConfigStore : IRepositoryManagementConfigStore
