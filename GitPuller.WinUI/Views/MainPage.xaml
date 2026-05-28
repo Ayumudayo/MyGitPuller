@@ -187,10 +187,24 @@
                                     </AppBarButton.Icon>
                                 </AppBarButton>
                                 <AppBarButton
-                                    Command="{x:Bind ViewModel.AddRepositoryCommand}"
+                                    Click="AddRepositoryButton_Click"
                                     Label="Add URL">
                                     <AppBarButton.Icon>
                                         <SymbolIcon Symbol="Add" />
+                                    </AppBarButton.Icon>
+                                </AppBarButton>
+                                <AppBarButton
+                                    Command="{x:Bind ViewModel.OpenLibraryFolderCommand}"
+                                    Label="Open library">
+                                    <AppBarButton.Icon>
+                                        <SymbolIcon Symbol="OpenFile" />
+                                    </AppBarButton.Icon>
+                                </AppBarButton>
+                                <AppBarButton
+                                    Command="{x:Bind ViewModel.OpenLatestReportCommand}"
+                                    Label="Open report">
+                                    <AppBarButton.Icon>
+                                        <SymbolIcon Symbol="Page" />
                                     </AppBarButton.Icon>
                                 </AppBarButton>
                             </CommandBar>
@@ -235,7 +249,7 @@
                                     Grid.Row="0"
                                     Grid.Column="2"
                                     Margin="0,28,0,0"
-                                    Command="{x:Bind ViewModel.AddRepositoryCommand}"
+                                    Click="AddRepositoryButton_Click"
                                     Content="Add" />
                             </Grid>
 
@@ -255,6 +269,36 @@
                                     Message="{x:Bind ViewModel.AttentionSummary, Mode=OneWay}"
                                     Severity="Warning"
                                     Title="Run review required" />
+                                <InfoBar
+                                    IsOpen="{x:Bind ViewModel.HasAddRepositoryError, Mode=OneWay}"
+                                    Message="{x:Bind ViewModel.AddRepositoryErrorMessage, Mode=OneWay}"
+                                    Severity="Error"
+                                    Title="Add repository failed" />
+                                <InfoBar
+                                    IsOpen="{x:Bind ViewModel.HasAddRepositoryStatus, Mode=OneWay}"
+                                    Message="{x:Bind ViewModel.AddRepositoryStatusMessage, Mode=OneWay}"
+                                    Severity="Success"
+                                    Title="Repository added" />
+                                <InfoBar
+                                    IsOpen="{x:Bind ViewModel.HasRemovedRepositoryError, Mode=OneWay}"
+                                    Message="{x:Bind ViewModel.RemovedRepositoryErrorMessage, Mode=OneWay}"
+                                    Severity="Error"
+                                    Title="Removed repository action failed" />
+                                <InfoBar
+                                    IsOpen="{x:Bind ViewModel.HasRemovedRepositoryStatus, Mode=OneWay}"
+                                    Message="{x:Bind ViewModel.RemovedRepositoryStatusMessage, Mode=OneWay}"
+                                    Severity="Success"
+                                    Title="Removed repository updated" />
+                                <InfoBar
+                                    IsOpen="{x:Bind ViewModel.HasLaunchError, Mode=OneWay}"
+                                    Message="{x:Bind ViewModel.LaunchErrorMessage, Mode=OneWay}"
+                                    Severity="Error"
+                                    Title="Open action failed" />
+                                <InfoBar
+                                    IsOpen="{x:Bind ViewModel.HasLaunchStatus, Mode=OneWay}"
+                                    Message="{x:Bind ViewModel.LaunchStatusMessage, Mode=OneWay}"
+                                    Severity="Informational"
+                                    Title="Open action" />
                                 <TextBlock
                                     Style="{StaticResource CaptionTextBlockStyle}"
                                     Text="{x:Bind ViewModel.ResultSummary, Mode=OneWay}" />
@@ -275,6 +319,91 @@
                                     IsIndeterminate="{x:Bind ViewModel.IsRunProgressIndeterminate, Mode=OneWay}"
                                     Maximum="100"
                                     Value="{x:Bind ViewModel.RunProgress, Mode=OneWay}" />
+
+                                <Expander Header="Advanced options">
+                                    <StackPanel Padding="{StaticResource GitPullerTightPadding}" Spacing="10">
+                                        <Grid ColumnSpacing="{StaticResource GitPullerColumnSpacing}" RowSpacing="{StaticResource GitPullerRowSpacing}">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <NumberBox
+                                                x:Name="AdvancedWorkersNumberBox"
+                                                Grid.Row="0"
+                                                Grid.Column="0"
+                                                Header="Workers"
+                                                Minimum="1"
+                                                SpinButtonPlacementMode="Inline"
+                                                Value="{x:Bind ViewModel.AdvancedWorkers, Mode=OneWay}"
+                                                ValueChanged="AdvancedWorkersNumberBox_ValueChanged" />
+                                            <NumberBox
+                                                x:Name="AdvancedTimeoutNumberBox"
+                                                Grid.Row="0"
+                                                Grid.Column="1"
+                                                Header="Timeout seconds"
+                                                Minimum="1"
+                                                SpinButtonPlacementMode="Inline"
+                                                Value="{x:Bind ViewModel.AdvancedTimeoutSeconds, Mode=OneWay}"
+                                                ValueChanged="AdvancedTimeoutNumberBox_ValueChanged" />
+                                            <NumberBox
+                                                x:Name="AdvancedStaleLockNumberBox"
+                                                Grid.Row="1"
+                                                Grid.Column="0"
+                                                Header="Stale lock minutes"
+                                                Minimum="1"
+                                                SpinButtonPlacementMode="Inline"
+                                                Value="{x:Bind ViewModel.AdvancedStaleLockMinutes, Mode=OneWay}"
+                                                ValueChanged="AdvancedStaleLockNumberBox_ValueChanged" />
+                                            <ToggleSwitch
+                                                Grid.Row="1"
+                                                Grid.Column="1"
+                                                Header="Branch sync"
+                                                IsOn="{x:Bind ViewModel.AdvancedSyncAllBranches, Mode=TwoWay}"
+                                                OffContent="Current branch only"
+                                                OnContent="All branches" />
+                                            <ToggleSwitch
+                                                Grid.Row="2"
+                                                Grid.Column="0"
+                                                Header="Stale lock cleanup"
+                                                IsOn="{x:Bind ViewModel.AdvancedNoStaleLockCleanup, Mode=TwoWay}"
+                                                OffContent="Cleanup enabled"
+                                                OnContent="No cleanup" />
+                                            <ToggleSwitch
+                                                Grid.Row="2"
+                                                Grid.Column="1"
+                                                Header="Verbose report"
+                                                IsOn="{x:Bind ViewModel.AdvancedVerboseReport, Mode=TwoWay}"
+                                                OffContent="Standard"
+                                                OnContent="Verbose" />
+                                        </Grid>
+
+                                        <ToggleSwitch
+                                            Header="Missing submodules"
+                                            IsOn="{x:Bind ViewModel.AdvancedInitMissingSubmodules, Mode=TwoWay}"
+                                            OffContent="Leave missing"
+                                            OnContent="Initialize missing" />
+                                        <InfoBar
+                                            IsOpen="{x:Bind ViewModel.HasAdvancedOptionsError, Mode=OneWay}"
+                                            Message="{x:Bind ViewModel.AdvancedOptionsErrorMessage, Mode=OneWay}"
+                                            Severity="Error"
+                                            Title="Advanced options failed" />
+                                        <InfoBar
+                                            IsOpen="{x:Bind ViewModel.HasAdvancedOptionsStatus, Mode=OneWay}"
+                                            Message="{x:Bind ViewModel.AdvancedOptionsStatusMessage, Mode=OneWay}"
+                                            Severity="Success"
+                                            Title="Advanced options" />
+                                        <Button
+                                            Command="{x:Bind ViewModel.SaveAdvancedOptionsCommand}"
+                                            Content="Save defaults"
+                                            Style="{StaticResource AccentButtonStyle}" />
+                                    </StackPanel>
+                                </Expander>
                             </StackPanel>
 
                             <ListView
@@ -376,6 +505,9 @@
                                         <TextBlock
                                             Style="{StaticResource GitPullerWrappingTextBlockStyle}"
                                             Text="{x:Bind ViewModel.SelectedResultRemoteUrl, Mode=OneWay}" />
+                                        <Button
+                                            Command="{x:Bind ViewModel.OpenSelectedRemoteCommand}"
+                                            Content="Open remote" />
                                     </StackPanel>
 
                                     <StackPanel Spacing="4">
@@ -383,6 +515,9 @@
                                         <TextBlock
                                             Style="{StaticResource GitPullerWrappingTextBlockStyle}"
                                             Text="{x:Bind ViewModel.SelectedResultPath, Mode=OneWay}" />
+                                        <Button
+                                            Command="{x:Bind ViewModel.OpenSelectedRepositoryFolderCommand}"
+                                            Content="Open folder" />
                                     </StackPanel>
 
                                     <StackPanel Spacing="4">
@@ -458,18 +593,84 @@
                                         <ListView ItemsSource="{x:Bind ViewModel.RemovedRepositories, Mode=OneWay}">
                                             <ListView.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:RemovedRepositoryViewModel">
-                                                    <StackPanel Padding="{StaticResource GitPullerTightPadding}" Spacing="4">
+                                                    <Grid
+                                                        MinWidth="0"
+                                                        Padding="{StaticResource GitPullerTightPadding}"
+                                                        RowSpacing="8">
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                        </Grid.RowDefinitions>
+
                                                         <TextBlock
+                                                            Grid.Row="0"
                                                             FontWeight="SemiBold"
                                                             Style="{StaticResource GitPullerWrappingTextBlockStyle}"
                                                             Text="{x:Bind Name}" />
                                                         <TextBlock
+                                                            Grid.Row="1"
+                                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                                            Text="{x:Bind RestoreStateText}" />
+                                                        <TextBlock
+                                                            Grid.Row="2"
                                                             Style="{StaticResource GitPullerWrappingTextBlockStyle}"
                                                             Text="{x:Bind OriginalPath}" />
-                                                        <Button
-                                                            Content="{x:Bind RestoreStateText}"
-                                                            IsEnabled="{x:Bind CanRestore}" />
-                                                    </StackPanel>
+                                                        <TextBlock
+                                                            Grid.Row="3"
+                                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                                            Text="{x:Bind RemovedPath}" />
+                                                        <CommandBar
+                                                            Grid.Row="4"
+                                                            DefaultLabelPosition="Right"
+                                                            IsOpen="False">
+                                                            <AppBarButton
+                                                                Click="RestoreRemovedRepositoryButton_Click"
+                                                                IsEnabled="{x:Bind CanRestore}"
+                                                                Label="Restore">
+                                                                <AppBarButton.Icon>
+                                                                    <SymbolIcon Symbol="Undo" />
+                                                                </AppBarButton.Icon>
+                                                            </AppBarButton>
+                                                            <AppBarButton
+                                                                Click="RestoreRemovedRepositoryAsButton_Click"
+                                                                Label="Restore as">
+                                                                <AppBarButton.Icon>
+                                                                    <SymbolIcon Symbol="Save" />
+                                                                </AppBarButton.Icon>
+                                                            </AppBarButton>
+                                                            <AppBarButton
+                                                                Click="OpenRemovedRepositoryFolderButton_Click"
+                                                                Label="Open removed">
+                                                                <AppBarButton.Icon>
+                                                                    <SymbolIcon Symbol="OpenFile" />
+                                                                </AppBarButton.Icon>
+                                                            </AppBarButton>
+                                                            <AppBarButton
+                                                                Click="OpenRemovedRepositoryOriginalButton_Click"
+                                                                Label="Open original">
+                                                                <AppBarButton.Icon>
+                                                                    <SymbolIcon Symbol="Folder" />
+                                                                </AppBarButton.Icon>
+                                                            </AppBarButton>
+                                                            <AppBarButton
+                                                                Click="OpenRemovedRepositoryRemoteButton_Click"
+                                                                Label="Open remote">
+                                                                <AppBarButton.Icon>
+                                                                    <SymbolIcon Symbol="Link" />
+                                                                </AppBarButton.Icon>
+                                                            </AppBarButton>
+                                                            <AppBarButton
+                                                                Click="PermanentlyDeleteRemovedRepositoryButton_Click"
+                                                                Label="Delete">
+                                                                <AppBarButton.Icon>
+                                                                    <SymbolIcon Symbol="Delete" />
+                                                                </AppBarButton.Icon>
+                                                            </AppBarButton>
+                                                        </CommandBar>
+                                                    </Grid>
                                                 </DataTemplate>
                                             </ListView.ItemTemplate>
                                         </ListView>

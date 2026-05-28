@@ -9,9 +9,12 @@ namespace GitPuller_WinUI.ViewModels;
 public sealed class MainShellViewModel : ObservableObject
 {
     private readonly IGitPullerSyncService? syncService;
+    private readonly IRepositoryManagementService? repositoryManagementService;
+    private readonly IFileSystemLauncher? launcher;
     private readonly IViewModelDispatcher dispatcher;
     private bool showCleanRepositories;
     private bool isRunning;
+    private bool isRepositoryManagementBusy;
     private bool hasInitialized;
     private RepositoryResultViewModel? selectedResult;
     private CategoryNavigationItemViewModel? selectedCategory;
@@ -26,18 +29,46 @@ public sealed class MainShellViewModel : ObservableObject
     private GitPullerLibraryLoadResult? currentLibraryLoad;
     private GitPullerRunRequest? currentRunRequest;
     private bool runCompletionApplied;
+    private RepositoryAddPreview? addRepositoryPreview;
+    private string addRepositoryUrl = string.Empty;
+    private string addRepositoryCategoryName = string.Empty;
+    private string addRepositoryFolderName = string.Empty;
+    private string addRepositoryTargetPathPreview = string.Empty;
+    private string addRepositoryDiagnosticTitle = "Enter a repository URL to preview the target path.";
+    private string addRepositoryDiagnosticExplanation = string.Empty;
+    private string addRepositoryDiagnosticEvidence = string.Empty;
+    private string addRepositoryStatusMessage = string.Empty;
+    private string addRepositoryErrorMessage = string.Empty;
+    private string advancedOptionsStatusMessage = string.Empty;
+    private string advancedOptionsErrorMessage = string.Empty;
+    private string removedRepositoryStatusMessage = string.Empty;
+    private string removedRepositoryErrorMessage = string.Empty;
+    private string launchStatusMessage = string.Empty;
+    private string launchErrorMessage = string.Empty;
+    private GitPullerOptions advancedOptionsBase = new();
+    private int advancedWorkers = new GitPullerOptions().MaxDegreeOfParallelism;
+    private int advancedTimeoutSeconds = new GitPullerOptions().GitTimeoutMilliseconds / 1000;
+    private bool advancedSyncAllBranches = new GitPullerOptions().SyncAllBranches;
+    private int advancedStaleLockMinutes = (int)new GitPullerOptions().StaleGitLockAge.TotalMinutes;
+    private bool advancedNoStaleLockCleanup = !new GitPullerOptions().StaleGitLockCleanup;
+    private bool advancedVerboseReport = new GitPullerOptions().VerboseReport;
+    private bool advancedInitMissingSubmodules = new GitPullerOptions().InitMissingSubmodules;
 
     public MainShellViewModel(
         string libraryRoot,
         IGitPullerSyncService syncService,
-        IViewModelDispatcher? dispatcher = null)
+        IViewModelDispatcher? dispatcher = null,
+        IRepositoryManagementService? repositoryManagementService = null,
+        IFileSystemLauncher? launcher = null)
         : this(
             libraryRoot,
             categories: [],
             repositoryResults: [],
             removedRepositories: [],
             syncService,
-            dispatcher)
+            dispatcher,
+            repositoryManagementService,
+            launcher)
     {
     }
 
@@ -47,10 +78,14 @@ public sealed class MainShellViewModel : ObservableObject
         IEnumerable<RepositoryResultViewModel> repositoryResults,
         IEnumerable<RemovedRepositoryViewModel> removedRepositories,
         IGitPullerSyncService? syncService = null,
-        IViewModelDispatcher? dispatcher = null)
+        IViewModelDispatcher? dispatcher = null,
+        IRepositoryManagementService? repositoryManagementService = null,
+        IFileSystemLauncher? launcher = null)
     {
         this.libraryRoot = string.IsNullOrWhiteSpace(libraryRoot) ? string.Empty : libraryRoot;
         this.syncService = syncService;
+        this.repositoryManagementService = repositoryManagementService;
+        this.launcher = launcher;
         this.dispatcher = dispatcher ?? ImmediateViewModelDispatcher.Instance;
 
         Categories = new ObservableCollection<CategoryNavigationItemViewModel>(categories);
@@ -67,6 +102,24 @@ public sealed class MainShellViewModel : ObservableObject
         AddRepositoryCommand = new RelayCommand(
             execute: () => { },
             canExecute: () => CanAddRepositoryFromUrl);
+        CloneRepositoryCommand = new AsyncRelayCommand(
+            execute: () => CloneRepositoryAsync(),
+            canExecute: () => CanCloneRepository);
+        SaveAdvancedOptionsCommand = new AsyncRelayCommand(
+            execute: () => SaveAdvancedOptionsAsync(),
+            canExecute: () => CanSaveAdvancedOptions);
+        OpenSelectedRepositoryFolderCommand = new AsyncRelayCommand(
+            execute: () => OpenSelectedRepositoryFolderAsync(),
+            canExecute: () => CanOpenSelectedRepositoryFolder);
+        OpenSelectedRemoteCommand = new AsyncRelayCommand(
+            execute: () => OpenSelectedRemoteAsync(),
+            canExecute: () => CanOpenSelectedRemote);
+        OpenLibraryFolderCommand = new AsyncRelayCommand(
+            execute: () => OpenLibraryFolderAsync(),
+            canExecute: () => CanOpenLibraryFolder);
+        OpenLatestReportCommand = new AsyncRelayCommand(
+            execute: () => OpenLatestReportAsync(),
+            canExecute: () => CanOpenLatestReport);
         RunSyncCommand = new AsyncRelayCommand(
             execute: () => RunSyncAsync(),
             canExecute: () => CanRunSync);
@@ -79,13 +132,27 @@ public sealed class MainShellViewModel : ObservableObject
     public string LibraryRoot
     {
         get => libraryRoot;
-        private set => SetProperty(ref libraryRoot, value);
+        private set
+        {
+            if (SetProperty(ref libraryRoot, value))
+            {
+                OnPropertyChanged(nameof(CanOpenLibraryFolder));
+                OnPropertyChanged(nameof(LatestReportPath));
+                OnPropertyChanged(nameof(CanOpenLatestReport));
+            }
+        }
     }
 
     public ObservableCollection<CategoryNavigationItemViewModel> Categories { get; }
     public ObservableCollection<RepositoryResultViewModel> RepositoryResults { get; }
     public ObservableCollection<RemovedRepositoryViewModel> RemovedRepositories { get; }
     public ICommand AddRepositoryCommand { get; }
+    public ICommand CloneRepositoryCommand { get; }
+    public ICommand SaveAdvancedOptionsCommand { get; }
+    public ICommand OpenSelectedRepositoryFolderCommand { get; }
+    public ICommand OpenSelectedRemoteCommand { get; }
+    public ICommand OpenLibraryFolderCommand { get; }
+    public ICommand OpenLatestReportCommand { get; }
     public ICommand RunSyncCommand { get; }
     public ICommand RefreshCommand { get; }
     public ICommand RetrySelectedCommand { get; }
@@ -105,6 +172,22 @@ public sealed class MainShellViewModel : ObservableObject
                 OnPropertyChanged(nameof(RunStatusTitle));
                 OnPropertyChanged(nameof(IsRunProgressIndeterminate));
                 OnPropertyChanged(nameof(CanAddRepositoryFromUrl));
+                OnPropertyChanged(nameof(CanCloneRepository));
+                OnPropertyChanged(nameof(CanSaveAdvancedOptions));
+                RaiseCommandCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool IsRepositoryManagementBusy
+    {
+        get => isRepositoryManagementBusy;
+        private set
+        {
+            if (SetProperty(ref isRepositoryManagementBusy, value))
+            {
+                OnPropertyChanged(nameof(CanCloneRepository));
+                OnPropertyChanged(nameof(CanSaveAdvancedOptions));
                 RaiseCommandCanExecuteChanged();
             }
         }
@@ -189,6 +272,179 @@ public sealed class MainShellViewModel : ObservableObject
             }
         }
     }
+
+    public string AddRepositoryUrl
+    {
+        get => addRepositoryUrl;
+        set
+        {
+            if (SetProperty(ref addRepositoryUrl, value))
+            {
+                UpdateAddRepositoryPreview();
+            }
+        }
+    }
+
+    public string AddRepositoryCategoryName
+    {
+        get => addRepositoryCategoryName;
+        set
+        {
+            if (SetProperty(ref addRepositoryCategoryName, value))
+            {
+                UpdateAddRepositoryPreview();
+            }
+        }
+    }
+
+    public string AddRepositoryFolderName
+    {
+        get => addRepositoryFolderName;
+        set
+        {
+            if (SetProperty(ref addRepositoryFolderName, value))
+            {
+                UpdateAddRepositoryPreview();
+            }
+        }
+    }
+
+    public string AddRepositoryTargetPathPreview => addRepositoryTargetPathPreview;
+    public string AddRepositoryDiagnosticTitle => addRepositoryDiagnosticTitle;
+    public string AddRepositoryDiagnosticExplanation => addRepositoryDiagnosticExplanation;
+    public string AddRepositoryDiagnosticEvidence => addRepositoryDiagnosticEvidence;
+    public string AddRepositoryStatusMessage => addRepositoryStatusMessage;
+    public string AddRepositoryErrorMessage => addRepositoryErrorMessage;
+    public bool HasAddRepositoryStatus => !string.IsNullOrWhiteSpace(AddRepositoryStatusMessage);
+    public bool HasAddRepositoryError => !string.IsNullOrWhiteSpace(AddRepositoryErrorMessage);
+    public bool HasAddRepositoryDiagnostic => !string.IsNullOrWhiteSpace(AddRepositoryDiagnosticTitle)
+        || !string.IsNullOrWhiteSpace(AddRepositoryDiagnosticExplanation)
+        || !string.IsNullOrWhiteSpace(AddRepositoryDiagnosticEvidence);
+    public bool CanCloneRepository =>
+        !IsRunning
+        && !IsRepositoryManagementBusy
+        && repositoryManagementService is not null
+        && addRepositoryPreview?.IsValid == true;
+
+    public int AdvancedWorkers
+    {
+        get => advancedWorkers;
+        set
+        {
+            var normalized = Math.Max(1, value);
+            if (SetProperty(ref advancedWorkers, normalized))
+            {
+                OnAdvancedOptionChanged();
+            }
+        }
+    }
+
+    public int AdvancedTimeoutSeconds
+    {
+        get => advancedTimeoutSeconds;
+        set
+        {
+            var normalized = Math.Max(1, value);
+            if (SetProperty(ref advancedTimeoutSeconds, normalized))
+            {
+                OnAdvancedOptionChanged();
+            }
+        }
+    }
+
+    public bool AdvancedSyncAllBranches
+    {
+        get => advancedSyncAllBranches;
+        set
+        {
+            if (SetProperty(ref advancedSyncAllBranches, value))
+            {
+                OnAdvancedOptionChanged();
+            }
+        }
+    }
+
+    public int AdvancedStaleLockMinutes
+    {
+        get => advancedStaleLockMinutes;
+        set
+        {
+            var normalized = Math.Max(1, value);
+            if (SetProperty(ref advancedStaleLockMinutes, normalized))
+            {
+                OnAdvancedOptionChanged();
+            }
+        }
+    }
+
+    public bool AdvancedNoStaleLockCleanup
+    {
+        get => advancedNoStaleLockCleanup;
+        set
+        {
+            if (SetProperty(ref advancedNoStaleLockCleanup, value))
+            {
+                OnAdvancedOptionChanged();
+            }
+        }
+    }
+
+    public bool AdvancedVerboseReport
+    {
+        get => advancedVerboseReport;
+        set
+        {
+            if (SetProperty(ref advancedVerboseReport, value))
+            {
+                OnAdvancedOptionChanged();
+            }
+        }
+    }
+
+    public bool AdvancedInitMissingSubmodules
+    {
+        get => advancedInitMissingSubmodules;
+        set
+        {
+            if (SetProperty(ref advancedInitMissingSubmodules, value))
+            {
+                OnAdvancedOptionChanged();
+            }
+        }
+    }
+
+    public string AdvancedOptionsStatusMessage => advancedOptionsStatusMessage;
+    public string AdvancedOptionsErrorMessage => advancedOptionsErrorMessage;
+    public bool HasAdvancedOptionsStatus => !string.IsNullOrWhiteSpace(AdvancedOptionsStatusMessage);
+    public bool HasAdvancedOptionsError => !string.IsNullOrWhiteSpace(AdvancedOptionsErrorMessage);
+    public bool CanSaveAdvancedOptions =>
+        !IsRunning
+        && !IsRepositoryManagementBusy
+        && repositoryManagementService is not null
+        && !string.IsNullOrWhiteSpace(LibraryRoot);
+
+    public string RemovedRepositoryStatusMessage => removedRepositoryStatusMessage;
+    public string RemovedRepositoryErrorMessage => removedRepositoryErrorMessage;
+    public bool HasRemovedRepositoryStatus => !string.IsNullOrWhiteSpace(RemovedRepositoryStatusMessage);
+    public bool HasRemovedRepositoryError => !string.IsNullOrWhiteSpace(RemovedRepositoryErrorMessage);
+
+    public string LaunchStatusMessage => launchStatusMessage;
+    public string LaunchErrorMessage => launchErrorMessage;
+    public bool HasLaunchStatus => !string.IsNullOrWhiteSpace(LaunchStatusMessage);
+    public bool HasLaunchError => !string.IsNullOrWhiteSpace(LaunchErrorMessage);
+    public string LatestReportPath => Path.Combine(AppContext.BaseDirectory, "git_update_report.md");
+    public bool CanOpenSelectedRepositoryFolder =>
+        launcher is not null
+        && !string.IsNullOrWhiteSpace(SelectedResult?.Path);
+    public bool CanOpenSelectedRemote =>
+        launcher is not null
+        && IsLaunchableUri(SelectedResult?.RemoteUrl);
+    public bool CanOpenLibraryFolder =>
+        launcher is not null
+        && !string.IsNullOrWhiteSpace(LibraryRoot);
+    public bool CanOpenLatestReport =>
+        launcher is not null
+        && File.Exists(LatestReportPath);
 
     public IReadOnlyList<RepositoryResultViewModel> VisibleResults => RepositoryResults
         .Where(result => SelectedCategory is null
@@ -354,10 +610,262 @@ public sealed class MainShellViewModel : ObservableObject
         }
     }
 
+    public void BeginAddRepository(string? remoteUrl = null, string? categoryName = null)
+    {
+        AddRepositoryUrl = remoteUrl ?? RepositoryUrlToAdd;
+        AddRepositoryCategoryName = categoryName
+            ?? SelectedCategory?.Name
+            ?? string.Empty;
+        AddRepositoryFolderName = string.Empty;
+        ClearAddRepositoryMessages();
+        UpdateAddRepositoryPreview();
+    }
+
+    public void UpdateAddRepositoryPreview()
+    {
+        if (repositoryManagementService is null)
+        {
+            SetAddRepositoryPreview(
+                preview: null,
+                targetPath: string.Empty,
+                title: "Repository management is unavailable",
+                explanation: "The WinUI repository-management service is not configured.",
+                evidence: string.Empty);
+            return;
+        }
+
+        try
+        {
+            var request = CreateAddRepositoryRequest();
+            var preview = repositoryManagementService.PreviewAddRepository(request);
+            var diagnostic = preview.Diagnostic;
+            SetAddRepositoryPreview(
+                preview,
+                preview.TargetPath,
+                diagnostic?.Title ?? "Clone target is valid",
+                diagnostic?.Explanation ?? "The repository can be cloned to the previewed target path.",
+                diagnostic?.Evidence ?? preview.TargetPath);
+        }
+        catch (Exception ex)
+        {
+            SetAddRepositoryPreview(
+                preview: null,
+                targetPath: string.Empty,
+                title: "Clone preview failed",
+                explanation: ex.Message,
+                evidence: string.Empty);
+        }
+    }
+
+    public async Task CloneRepositoryAsync(CancellationToken cancellationToken = default)
+    {
+        if (!CanCloneRepository || repositoryManagementService is null)
+        {
+            return;
+        }
+
+        IsRepositoryManagementBusy = true;
+        ClearAddRepositoryMessages();
+
+        try
+        {
+            var result = await repositoryManagementService.CloneRepositoryAsync(
+                CreateAddRepositoryRequest(),
+                BuildAdvancedOptions(),
+                cancellationToken);
+
+            if (!result.Succeeded)
+            {
+                var diagnostic = result.CloneResult.Diagnostic ?? result.CloneResult.Preview.Diagnostic;
+                SetAddRepositoryError(diagnostic is null
+                    ? "Clone failed without a diagnostic."
+                    : $"{diagnostic.Title}: {diagnostic.Explanation} {diagnostic.Evidence}".Trim());
+                SetAddRepositoryPreview(
+                    result.CloneResult.Preview,
+                    result.CloneResult.Preview.TargetPath,
+                    diagnostic?.Title ?? "Clone failed",
+                    diagnostic?.Explanation ?? "The clone command did not complete successfully.",
+                    diagnostic?.Evidence ?? string.Empty);
+                return;
+            }
+
+            if (result.LibraryLoadResult is not null)
+            {
+                ApplyLibraryLoadResult(result.LibraryLoadResult, resetResults: false);
+            }
+
+            if (result.CloneResult.Repository is not null)
+            {
+                UpsertRepositoryResult(
+                    new RepoResult
+                    {
+                        Path = result.CloneResult.Repository.Path,
+                        Name = result.CloneResult.Repository.Name,
+                        Elapsed = result.CloneResult.GitResult?.Elapsed ?? TimeSpan.Zero
+                    },
+                    result.CloneResult.Repository);
+            }
+
+            SetAddRepositoryStatus($"Cloned {result.CloneResult.Repository?.Name ?? "repository"}.");
+            RepositoryUrlToAdd = string.Empty;
+            addRepositoryUrl = string.Empty;
+            addRepositoryFolderName = string.Empty;
+            addRepositoryTargetPathPreview = string.Empty;
+            addRepositoryPreview = null;
+            OnPropertyChanged(nameof(AddRepositoryUrl));
+            OnPropertyChanged(nameof(AddRepositoryFolderName));
+            RaiseAddRepositoryPreviewPropertiesChanged();
+        }
+        catch (OperationCanceledException)
+        {
+            SetAddRepositoryError("Clone was canceled.");
+        }
+        catch (Exception ex)
+        {
+            SetAddRepositoryError(ex.Message);
+        }
+        finally
+        {
+            IsRepositoryManagementBusy = false;
+        }
+    }
+
+    public async Task SaveAdvancedOptionsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!CanSaveAdvancedOptions || repositoryManagementService is null)
+        {
+            return;
+        }
+
+        IsRepositoryManagementBusy = true;
+        ClearAdvancedOptionsMessages();
+
+        try
+        {
+            var options = BuildAdvancedOptions();
+            var loadResult = await repositoryManagementService.SaveDefaultOptionsAsync(
+                LibraryRoot,
+                options,
+                cancellationToken);
+            ApplyLibraryLoadResult(loadResult, resetResults: false);
+            SetAdvancedOptionsStatus("Advanced options saved.");
+        }
+        catch (OperationCanceledException)
+        {
+            SetAdvancedOptionsError("Saving advanced options was canceled.");
+        }
+        catch (Exception ex)
+        {
+            SetAdvancedOptionsError(ex.Message);
+        }
+        finally
+        {
+            IsRepositoryManagementBusy = false;
+        }
+    }
+
+    public async Task RestoreRemovedRepositoryAsync(
+        RemovedRepositoryViewModel? removedRepository,
+        CancellationToken cancellationToken = default)
+    {
+        if (removedRepository is null || repositoryManagementService is null || IsRepositoryManagementBusy)
+        {
+            return;
+        }
+
+        await RunRemovedRepositoryOperationAsync(
+            () => repositoryManagementService.RestoreRepositoryAsync(
+                LibraryRoot,
+                removedRepository.Record,
+                cancellationToken),
+            $"Restored {removedRepository.Name}.",
+            cancellationToken);
+    }
+
+    public async Task RestoreRemovedRepositoryAsAsync(
+        RemovedRepositoryViewModel? removedRepository,
+        string category,
+        string folderName,
+        CancellationToken cancellationToken = default)
+    {
+        if (removedRepository is null || repositoryManagementService is null || IsRepositoryManagementBusy)
+        {
+            return;
+        }
+
+        await RunRemovedRepositoryOperationAsync(
+            () => repositoryManagementService.RestoreRepositoryAsAsync(
+                LibraryRoot,
+                removedRepository.Record,
+                category,
+                folderName,
+                cancellationToken),
+            $"Restored {removedRepository.Name}.",
+            cancellationToken);
+    }
+
+    public async Task PermanentlyDeleteRemovedRepositoryAsync(
+        RemovedRepositoryViewModel? removedRepository,
+        CancellationToken cancellationToken = default)
+    {
+        if (removedRepository is null || repositoryManagementService is null || IsRepositoryManagementBusy)
+        {
+            return;
+        }
+
+        await RunRemovedRepositoryOperationAsync(
+            () => repositoryManagementService.PermanentlyDeleteRepositoryAsync(
+                LibraryRoot,
+                removedRepository.Record,
+                cancellationToken),
+            $"Permanently deleted {removedRepository.Name}.",
+            cancellationToken);
+    }
+
+    public Task OpenSelectedRepositoryFolderAsync()
+    {
+        return LaunchPathAsync(SelectedResult?.Path, "repository folder");
+    }
+
+    public Task OpenSelectedRemoteAsync()
+    {
+        return LaunchUriAsync(SelectedResult?.RemoteUrl, "repository remote");
+    }
+
+    public Task OpenLibraryFolderAsync()
+    {
+        return LaunchPathAsync(LibraryRoot, "library folder");
+    }
+
+    public Task OpenLatestReportAsync()
+    {
+        return LaunchPathAsync(LatestReportPath, "latest report");
+    }
+
+    public Task OpenRemovedFolderAsync(RemovedRepositoryViewModel? removedRepository)
+    {
+        return LaunchPathAsync(removedRepository?.RemovedPath, "removed folder");
+    }
+
+    public Task OpenRemovedOriginalFolderAsync(RemovedRepositoryViewModel? removedRepository)
+    {
+        return LaunchPathAsync(removedRepository?.OriginalPath, "original folder");
+    }
+
+    public Task OpenRemovedRemoteAsync(RemovedRepositoryViewModel? removedRepository)
+    {
+        return LaunchUriAsync(removedRepository?.RemoteUrl, "removed repository remote");
+    }
+
     public static MainShellViewModel CreateDefault(IViewModelDispatcher? dispatcher = null)
     {
         var service = new CoreGitPullerSyncService();
-        return new MainShellViewModel(service.GetDefaultLibraryRoot(), service, dispatcher);
+        return new MainShellViewModel(
+            service.GetDefaultLibraryRoot(),
+            service,
+            dispatcher,
+            new CoreRepositoryManagementService(),
+            new WinUiFileSystemLauncher());
     }
 
     public static MainShellViewModel CreateSample()
@@ -478,6 +986,332 @@ public sealed class MainShellViewModel : ObservableObject
         return new MainShellViewModel(libraryRoot, categories, results, removed);
     }
 
+    private RepositoryAddRequest CreateAddRepositoryRequest()
+    {
+        return new RepositoryAddRequest(
+            LibraryRoot,
+            AddRepositoryCategoryName,
+            AddRepositoryUrl,
+            string.IsNullOrWhiteSpace(AddRepositoryFolderName) ? null : AddRepositoryFolderName);
+    }
+
+    private void SetAddRepositoryPreview(
+        RepositoryAddPreview? preview,
+        string targetPath,
+        string title,
+        string explanation,
+        string evidence)
+    {
+        addRepositoryPreview = preview;
+        addRepositoryTargetPathPreview = targetPath;
+        addRepositoryDiagnosticTitle = title;
+        addRepositoryDiagnosticExplanation = explanation;
+        addRepositoryDiagnosticEvidence = evidence;
+        RaiseAddRepositoryPreviewPropertiesChanged();
+    }
+
+    private void RaiseAddRepositoryPreviewPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(AddRepositoryTargetPathPreview));
+        OnPropertyChanged(nameof(AddRepositoryDiagnosticTitle));
+        OnPropertyChanged(nameof(AddRepositoryDiagnosticExplanation));
+        OnPropertyChanged(nameof(AddRepositoryDiagnosticEvidence));
+        OnPropertyChanged(nameof(HasAddRepositoryDiagnostic));
+        OnPropertyChanged(nameof(CanCloneRepository));
+        RaiseCommandCanExecuteChanged();
+    }
+
+    private void ClearAddRepositoryMessages()
+    {
+        if (!string.IsNullOrEmpty(addRepositoryStatusMessage))
+        {
+            addRepositoryStatusMessage = string.Empty;
+            OnPropertyChanged(nameof(AddRepositoryStatusMessage));
+            OnPropertyChanged(nameof(HasAddRepositoryStatus));
+        }
+
+        if (!string.IsNullOrEmpty(addRepositoryErrorMessage))
+        {
+            addRepositoryErrorMessage = string.Empty;
+            OnPropertyChanged(nameof(AddRepositoryErrorMessage));
+            OnPropertyChanged(nameof(HasAddRepositoryError));
+        }
+    }
+
+    private void SetAddRepositoryStatus(string message)
+    {
+        addRepositoryStatusMessage = message;
+        addRepositoryErrorMessage = string.Empty;
+        OnPropertyChanged(nameof(AddRepositoryStatusMessage));
+        OnPropertyChanged(nameof(AddRepositoryErrorMessage));
+        OnPropertyChanged(nameof(HasAddRepositoryStatus));
+        OnPropertyChanged(nameof(HasAddRepositoryError));
+    }
+
+    private void SetAddRepositoryError(string message)
+    {
+        addRepositoryErrorMessage = string.IsNullOrWhiteSpace(message)
+            ? "Repository add failed."
+            : message;
+        addRepositoryStatusMessage = string.Empty;
+        OnPropertyChanged(nameof(AddRepositoryErrorMessage));
+        OnPropertyChanged(nameof(AddRepositoryStatusMessage));
+        OnPropertyChanged(nameof(HasAddRepositoryError));
+        OnPropertyChanged(nameof(HasAddRepositoryStatus));
+    }
+
+    private GitPullerOptions BuildAdvancedOptions()
+    {
+        return advancedOptionsBase with
+        {
+            MaxDegreeOfParallelism = Math.Max(1, AdvancedWorkers),
+            GitTimeoutMilliseconds = checked(Math.Max(1, AdvancedTimeoutSeconds) * 1000),
+            SyncAllBranches = AdvancedSyncAllBranches,
+            StaleGitLockCleanup = !AdvancedNoStaleLockCleanup,
+            StaleGitLockAge = TimeSpan.FromMinutes(Math.Max(1, AdvancedStaleLockMinutes)),
+            VerboseReport = AdvancedVerboseReport,
+            InitMissingSubmodules = AdvancedInitMissingSubmodules
+        };
+    }
+
+    private void ApplyAdvancedOptions(GitPullerOptions? options)
+    {
+        advancedOptionsBase = options ?? new GitPullerOptions();
+        advancedWorkers = Math.Max(1, advancedOptionsBase.MaxDegreeOfParallelism);
+        advancedTimeoutSeconds = Math.Max(1, advancedOptionsBase.GitTimeoutMilliseconds / 1000);
+        advancedSyncAllBranches = advancedOptionsBase.SyncAllBranches;
+        advancedStaleLockMinutes = Math.Max(1, (int)Math.Round(advancedOptionsBase.StaleGitLockAge.TotalMinutes));
+        advancedNoStaleLockCleanup = !advancedOptionsBase.StaleGitLockCleanup;
+        advancedVerboseReport = advancedOptionsBase.VerboseReport;
+        advancedInitMissingSubmodules = advancedOptionsBase.InitMissingSubmodules;
+        OnPropertyChanged(nameof(AdvancedWorkers));
+        OnPropertyChanged(nameof(AdvancedTimeoutSeconds));
+        OnPropertyChanged(nameof(AdvancedSyncAllBranches));
+        OnPropertyChanged(nameof(AdvancedStaleLockMinutes));
+        OnPropertyChanged(nameof(AdvancedNoStaleLockCleanup));
+        OnPropertyChanged(nameof(AdvancedVerboseReport));
+        OnPropertyChanged(nameof(AdvancedInitMissingSubmodules));
+    }
+
+    private void OnAdvancedOptionChanged()
+    {
+        ClearAdvancedOptionsMessages();
+    }
+
+    private void ClearAdvancedOptionsMessages()
+    {
+        var hadStatus = !string.IsNullOrEmpty(advancedOptionsStatusMessage);
+        var hadError = !string.IsNullOrEmpty(advancedOptionsErrorMessage);
+        advancedOptionsStatusMessage = string.Empty;
+        advancedOptionsErrorMessage = string.Empty;
+
+        if (hadStatus)
+        {
+            OnPropertyChanged(nameof(AdvancedOptionsStatusMessage));
+            OnPropertyChanged(nameof(HasAdvancedOptionsStatus));
+        }
+
+        if (hadError)
+        {
+            OnPropertyChanged(nameof(AdvancedOptionsErrorMessage));
+            OnPropertyChanged(nameof(HasAdvancedOptionsError));
+        }
+    }
+
+    private void SetAdvancedOptionsStatus(string message)
+    {
+        advancedOptionsStatusMessage = message;
+        advancedOptionsErrorMessage = string.Empty;
+        OnPropertyChanged(nameof(AdvancedOptionsStatusMessage));
+        OnPropertyChanged(nameof(AdvancedOptionsErrorMessage));
+        OnPropertyChanged(nameof(HasAdvancedOptionsStatus));
+        OnPropertyChanged(nameof(HasAdvancedOptionsError));
+    }
+
+    private void SetAdvancedOptionsError(string message)
+    {
+        advancedOptionsErrorMessage = string.IsNullOrWhiteSpace(message)
+            ? "Advanced options could not be saved."
+            : message;
+        advancedOptionsStatusMessage = string.Empty;
+        OnPropertyChanged(nameof(AdvancedOptionsErrorMessage));
+        OnPropertyChanged(nameof(AdvancedOptionsStatusMessage));
+        OnPropertyChanged(nameof(HasAdvancedOptionsError));
+        OnPropertyChanged(nameof(HasAdvancedOptionsStatus));
+    }
+
+    private async Task RunRemovedRepositoryOperationAsync(
+        Func<Task<GitPullerLibraryLoadResult>> operation,
+        string successMessage,
+        CancellationToken cancellationToken)
+    {
+        IsRepositoryManagementBusy = true;
+        ClearRemovedRepositoryMessages();
+
+        try
+        {
+            var loadResult = await operation();
+            cancellationToken.ThrowIfCancellationRequested();
+            ApplyLibraryLoadResult(loadResult, resetResults: false);
+            SetRemovedRepositoryStatus(successMessage);
+        }
+        catch (OperationCanceledException)
+        {
+            SetRemovedRepositoryError("Removed repository operation was canceled.");
+        }
+        catch (Exception ex)
+        {
+            SetRemovedRepositoryError(ex.Message);
+        }
+        finally
+        {
+            IsRepositoryManagementBusy = false;
+        }
+    }
+
+    private void ClearRemovedRepositoryMessages()
+    {
+        var hadStatus = !string.IsNullOrEmpty(removedRepositoryStatusMessage);
+        var hadError = !string.IsNullOrEmpty(removedRepositoryErrorMessage);
+        removedRepositoryStatusMessage = string.Empty;
+        removedRepositoryErrorMessage = string.Empty;
+
+        if (hadStatus)
+        {
+            OnPropertyChanged(nameof(RemovedRepositoryStatusMessage));
+            OnPropertyChanged(nameof(HasRemovedRepositoryStatus));
+        }
+
+        if (hadError)
+        {
+            OnPropertyChanged(nameof(RemovedRepositoryErrorMessage));
+            OnPropertyChanged(nameof(HasRemovedRepositoryError));
+        }
+    }
+
+    private void SetRemovedRepositoryStatus(string message)
+    {
+        removedRepositoryStatusMessage = message;
+        removedRepositoryErrorMessage = string.Empty;
+        OnPropertyChanged(nameof(RemovedRepositoryStatusMessage));
+        OnPropertyChanged(nameof(RemovedRepositoryErrorMessage));
+        OnPropertyChanged(nameof(HasRemovedRepositoryStatus));
+        OnPropertyChanged(nameof(HasRemovedRepositoryError));
+    }
+
+    private void SetRemovedRepositoryError(string message)
+    {
+        removedRepositoryErrorMessage = string.IsNullOrWhiteSpace(message)
+            ? "Removed repository operation failed."
+            : message;
+        removedRepositoryStatusMessage = string.Empty;
+        OnPropertyChanged(nameof(RemovedRepositoryErrorMessage));
+        OnPropertyChanged(nameof(RemovedRepositoryStatusMessage));
+        OnPropertyChanged(nameof(HasRemovedRepositoryError));
+        OnPropertyChanged(nameof(HasRemovedRepositoryStatus));
+    }
+
+    private async Task LaunchPathAsync(string? path, string description)
+    {
+        if (launcher is null || string.IsNullOrWhiteSpace(path))
+        {
+            SetLaunchError($"Cannot open {description}.");
+            return;
+        }
+
+        ClearLaunchMessages();
+        try
+        {
+            var launched = await launcher.LaunchPathAsync(path);
+            if (launched)
+            {
+                SetLaunchStatus($"Opened {description}.");
+            }
+            else
+            {
+                SetLaunchError($"Could not open {description}: {path}");
+            }
+        }
+        catch (Exception ex)
+        {
+            SetLaunchError(ex.Message);
+        }
+    }
+
+    private async Task LaunchUriAsync(string? uri, string description)
+    {
+        if (launcher is null || !IsLaunchableUri(uri))
+        {
+            SetLaunchError($"Cannot open {description}.");
+            return;
+        }
+
+        ClearLaunchMessages();
+        try
+        {
+            var launched = await launcher.LaunchUriAsync(uri!);
+            if (launched)
+            {
+                SetLaunchStatus($"Opened {description}.");
+            }
+            else
+            {
+                SetLaunchError($"Could not open {description}: {uri}");
+            }
+        }
+        catch (Exception ex)
+        {
+            SetLaunchError(ex.Message);
+        }
+    }
+
+    private void ClearLaunchMessages()
+    {
+        var hadStatus = !string.IsNullOrEmpty(launchStatusMessage);
+        var hadError = !string.IsNullOrEmpty(launchErrorMessage);
+        launchStatusMessage = string.Empty;
+        launchErrorMessage = string.Empty;
+
+        if (hadStatus)
+        {
+            OnPropertyChanged(nameof(LaunchStatusMessage));
+            OnPropertyChanged(nameof(HasLaunchStatus));
+        }
+
+        if (hadError)
+        {
+            OnPropertyChanged(nameof(LaunchErrorMessage));
+            OnPropertyChanged(nameof(HasLaunchError));
+        }
+    }
+
+    private void SetLaunchStatus(string message)
+    {
+        launchStatusMessage = message;
+        launchErrorMessage = string.Empty;
+        OnPropertyChanged(nameof(LaunchStatusMessage));
+        OnPropertyChanged(nameof(LaunchErrorMessage));
+        OnPropertyChanged(nameof(HasLaunchStatus));
+        OnPropertyChanged(nameof(HasLaunchError));
+    }
+
+    private void SetLaunchError(string message)
+    {
+        launchErrorMessage = string.IsNullOrWhiteSpace(message) ? "Launch failed." : message;
+        launchStatusMessage = string.Empty;
+        OnPropertyChanged(nameof(LaunchErrorMessage));
+        OnPropertyChanged(nameof(LaunchStatusMessage));
+        OnPropertyChanged(nameof(HasLaunchError));
+        OnPropertyChanged(nameof(HasLaunchStatus));
+    }
+
+    private static bool IsLaunchableUri(string? uri)
+    {
+        return Uri.TryCreate(uri, UriKind.Absolute, out var parsedUri)
+            && (parsedUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || parsedUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
+    }
+
     private async Task<GitPullerLibraryLoadResult> LoadLibraryForCurrentRootAsync(
         bool resetResults,
         CancellationToken cancellationToken)
@@ -584,6 +1418,7 @@ public sealed class MainShellViewModel : ObservableObject
         currentLibraryLoad = loadResult;
         currentRunRequest = loadResult.CreateRunRequest();
         LibraryRoot = loadResult.LibraryRoot;
+        ApplyAdvancedOptions(loadResult.Options);
         RefreshCategoryNavigationItems();
         ReplaceRemovedRepositories(loadResult.RemovedRepositories);
 
@@ -926,6 +1761,8 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedResultRelatedCommand));
         OnPropertyChanged(nameof(SelectedResultLogLines));
         OnPropertyChanged(nameof(HasSelectedResult));
+        OnPropertyChanged(nameof(CanOpenSelectedRepositoryFolder));
+        OnPropertyChanged(nameof(CanOpenSelectedRemote));
     }
 
     private void RaiseCommandCanExecuteChanged()
@@ -933,6 +1770,36 @@ public sealed class MainShellViewModel : ObservableObject
         if (AddRepositoryCommand is RelayCommand addCommand)
         {
             addCommand.RaiseCanExecuteChanged();
+        }
+
+        if (CloneRepositoryCommand is AsyncRelayCommand cloneCommand)
+        {
+            cloneCommand.RaiseCanExecuteChanged();
+        }
+
+        if (SaveAdvancedOptionsCommand is AsyncRelayCommand saveAdvancedCommand)
+        {
+            saveAdvancedCommand.RaiseCanExecuteChanged();
+        }
+
+        if (OpenSelectedRepositoryFolderCommand is AsyncRelayCommand openFolderCommand)
+        {
+            openFolderCommand.RaiseCanExecuteChanged();
+        }
+
+        if (OpenSelectedRemoteCommand is AsyncRelayCommand openRemoteCommand)
+        {
+            openRemoteCommand.RaiseCanExecuteChanged();
+        }
+
+        if (OpenLibraryFolderCommand is AsyncRelayCommand openLibraryCommand)
+        {
+            openLibraryCommand.RaiseCanExecuteChanged();
+        }
+
+        if (OpenLatestReportCommand is AsyncRelayCommand openReportCommand)
+        {
+            openReportCommand.RaiseCanExecuteChanged();
         }
 
         if (RunSyncCommand is AsyncRelayCommand runCommand)

@@ -478,6 +478,56 @@ public sealed class RepositoryManagementTests : IDisposable
     }
 
     [Fact]
+    public void Preview_UsesFolderNameOverrideForRepositoryNameAndTargetPath()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "https://github.com/goatcorp/Dalamud.git",
+            "Dalamud-local");
+        var service = new RepositoryCloneService();
+
+        var preview = service.Preview(request);
+
+        Assert.True(preview.IsValid);
+        Assert.Null(preview.Diagnostic);
+        Assert.Equal("Dalamud-local", preview.RepositoryName);
+        Assert.Equal(Path.Combine(Path.GetFullPath(libraryRoot), "Plugins", "Dalamud-local"), preview.TargetPath);
+        Assert.NotNull(preview.Repository);
+        Assert.Equal("Dalamud-local", preview.Repository.Name);
+        Assert.Equal("https://github.com/goatcorp/Dalamud.git", preview.Repository.RemoteUrl);
+    }
+
+    [Theory]
+    [InlineData("..")]
+    [InlineData("..\\Escape")]
+    [InlineData(".git")]
+    [InlineData("RepoWithTrailingSpace ")]
+    [InlineData("RepoWithTrailingDot.")]
+    [InlineData("CON")]
+    public void Preview_RejectsInvalidFolderNameOverrideBeforeGitRuns(string folderNameOverride)
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var request = new RepositoryAddRequest(
+            libraryRoot,
+            "Plugins",
+            "https://github.com/goatcorp/Dalamud.git",
+            folderNameOverride);
+        var service = new RepositoryCloneService();
+
+        var preview = service.Preview(request);
+        var cloneResult = service.Clone(request);
+
+        Assert.False(preview.IsValid);
+        Assert.NotNull(preview.Diagnostic);
+        Assert.Equal(FailureCategory.InvalidCloneRequest, preview.Diagnostic.Category);
+        Assert.Null(preview.Repository);
+        Assert.False(cloneResult.Succeeded);
+        Assert.False(cloneResult.GitCommandExecuted);
+    }
+
+    [Fact]
     public void Preview_RejectsMissingCategory_WithoutInferringOne()
     {
         var libraryRoot = Path.Combine(tempRoot, "Library");

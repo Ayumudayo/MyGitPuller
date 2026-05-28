@@ -9,6 +9,7 @@ public sealed class RemovedRepositoryViewModel
         bool removedPathExists,
         bool originalPathExists)
     {
+        Record = record;
         Name = string.IsNullOrWhiteSpace(record.Name) ? "(unnamed repository)" : record.Name;
         Category = string.IsNullOrWhiteSpace(record.Category) ? "(uncategorized)" : record.Category;
         OriginalPath = record.OriginalPath;
@@ -19,6 +20,7 @@ public sealed class RemovedRepositoryViewModel
         OriginalPathExists = originalPathExists;
     }
 
+    public RemovedRepositoryRecord Record { get; }
     public string Name { get; }
     public string Category { get; }
     public string OriginalPath { get; }

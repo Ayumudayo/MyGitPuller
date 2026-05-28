@@ -175,6 +175,252 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public void AddRepositoryPreview_DisablesCloneUntilCorePreviewIsValid()
+    {
+        var repositoryService = new FakeRepositoryManagementService();
+        repositoryService.PreviewHandler = request => request.RemoteUrl.Contains("valid", StringComparison.OrdinalIgnoreCase)
+            ? ValidAddPreview(request)
+            : InvalidAddPreview(request, "Clone URL is invalid");
+        var viewModel = CreateViewModel(repositoryManagementService: repositoryService);
+
+        viewModel.AddRepositoryUrl = "not a git url";
+        viewModel.AddRepositoryCategoryName = "Plugins";
+        viewModel.UpdateAddRepositoryPreview();
+
+        Assert.False(viewModel.CanCloneRepository);
+        Assert.Contains("invalid", viewModel.AddRepositoryDiagnosticTitle, StringComparison.OrdinalIgnoreCase);
+
+        viewModel.AddRepositoryUrl = "https://github.com/example/valid.git";
+        viewModel.AddRepositoryFolderName = "valid-local";
+        viewModel.UpdateAddRepositoryPreview();
+
+        Assert.True(viewModel.CanCloneRepository);
+        Assert.Equal(Path.Combine(TestRoot, "Plugins", "valid-local"), viewModel.AddRepositoryTargetPathPreview);
+        Assert.Equal("valid-local", repositoryService.LastPreviewRequest?.FolderNameOverride);
+    }
+
+    [Fact]
+    public async Task CloneRepositoryAsync_WhenPreviewIsValid_RefreshesConfigAndListState()
+    {
+        var repositoryService = new FakeRepositoryManagementService();
+        repositoryService.PreviewHandler = ValidAddPreview;
+        repositoryService.CloneHandler = (request, options, _) =>
+        {
+            var preview = ValidAddPreview(request);
+            var repository = preview.Repository!;
+            var cloneResult = new RepositoryAddResult(
+                preview,
+                repository,
+                Diagnostic: null,
+                GitResult: new RepoResult
+                {
+                    Path = repository.Path,
+                    Name = repository.Name,
+                    Elapsed = TimeSpan.FromSeconds(1)
+                });
+            return Task.FromResult(new RepositoryAddWorkflowResult(
+                cloneResult,
+                LoadResult(
+                    new GitPullerOptions { MaxDegreeOfParallelism = options.MaxDegreeOfParallelism },
+                    [repository],
+                    ["Plugins", "Tools"])));
+        };
+        var viewModel = CreateViewModel(repositoryManagementService: repositoryService);
+        viewModel.AddRepositoryUrl = "https://github.com/example/new-repo.git";
+        viewModel.AddRepositoryCategoryName = "Tools";
+        viewModel.AddRepositoryFolderName = "new-repo-local";
+        viewModel.UpdateAddRepositoryPreview();
+
+        await viewModel.CloneRepositoryAsync();
+
+        Assert.False(viewModel.HasAddRepositoryError);
+        Assert.Equal("new-repo-local", repositoryService.LastCloneRequest?.FolderNameOverride);
+        Assert.Contains(viewModel.Categories, category => category.Name == "Tools");
+        var result = Assert.Single(viewModel.RepositoryResults, repository => repository.Name == "new-repo-local");
+        Assert.Equal(RepositoryResultStatus.Clean, result.Status);
+        Assert.Equal(string.Empty, viewModel.RepositoryUrlToAdd);
+        Assert.Equal(string.Empty, viewModel.AddRepositoryUrl);
+    }
+
+    [Fact]
+    public async Task SaveAdvancedOptionsAsync_PersistsChangedDefaults()
+    {
+        var loadedOptions = new GitPullerOptions
+        {
+            MaxDegreeOfParallelism = 2,
+            GitTimeoutMilliseconds = 90000,
+            SyncAllBranches = false,
+            StaleGitLockCleanup = false,
+            StaleGitLockAge = TimeSpan.FromMinutes(25),
+            VerboseReport = true,
+            InitMissingSubmodules = false
+        };
+        var service = new FakeGitPullerSyncService(LoadResult(loadedOptions, [], ["Plugins"]));
+        var repositoryService = new FakeRepositoryManagementService();
+        GitPullerOptions? savedOptions = null;
+        repositoryService.SaveOptionsHandler = (libraryRoot, options, _) =>
+        {
+            savedOptions = options;
+            return Task.FromResult(LoadResult(options, [], ["Plugins"]));
+        };
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            service,
+            repositoryManagementService: repositoryService);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal(2, viewModel.AdvancedWorkers);
+        Assert.Equal(90, viewModel.AdvancedTimeoutSeconds);
+        Assert.False(viewModel.AdvancedSyncAllBranches);
+        Assert.True(viewModel.AdvancedNoStaleLockCleanup);
+        Assert.Equal(25, viewModel.AdvancedStaleLockMinutes);
+        Assert.True(viewModel.AdvancedVerboseReport);
+        Assert.False(viewModel.AdvancedInitMissingSubmodules);
+
+        viewModel.AdvancedWorkers = 4;
+        viewModel.AdvancedTimeoutSeconds = 45;
+        viewModel.AdvancedSyncAllBranches = true;
+        viewModel.AdvancedNoStaleLockCleanup = false;
+        viewModel.AdvancedStaleLockMinutes = 7;
+        viewModel.AdvancedVerboseReport = false;
+        viewModel.AdvancedInitMissingSubmodules = true;
+
+        await viewModel.SaveAdvancedOptionsAsync();
+
+        Assert.NotNull(savedOptions);
+        Assert.Equal(4, savedOptions.MaxDegreeOfParallelism);
+        Assert.Equal(45000, savedOptions.GitTimeoutMilliseconds);
+        Assert.True(savedOptions.SyncAllBranches);
+        Assert.True(savedOptions.StaleGitLockCleanup);
+        Assert.Equal(TimeSpan.FromMinutes(7), savedOptions.StaleGitLockAge);
+        Assert.False(savedOptions.VerboseReport);
+        Assert.True(savedOptions.InitMissingSubmodules);
+        Assert.Contains("saved", viewModel.AdvancedOptionsStatusMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RemovedRepositoryActions_CallManagementServiceAndRefreshState()
+    {
+        var restoreRecord = RemovedRecord("RestoreMe");
+        var deleteRecord = RemovedRecord("DeleteMe");
+        var repositoryService = new FakeRepositoryManagementService();
+        repositoryService.RestoreHandler = (libraryRoot, record, _) =>
+        {
+            Assert.Equal(TestRoot, libraryRoot);
+            Assert.Equal(restoreRecord.RemovedPath, record.RemovedPath);
+            return Task.FromResult(LoadResult(new GitPullerOptions(), [], ["Plugins"]));
+        };
+        repositoryService.DeleteHandler = (_, record, _) =>
+        {
+            Assert.Equal(deleteRecord.RemovedPath, record.RemovedPath);
+            return Task.FromResult(LoadResult(new GitPullerOptions(), [], ["Plugins"]));
+        };
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            [new CategoryNavigationItemViewModel("Plugins", Path.Combine(TestRoot, "Plugins"), 0, 0)],
+            [],
+            [
+                RemovedRepositoryViewModel.FromRecord(restoreRecord, _ => true, _ => false),
+                RemovedRepositoryViewModel.FromRecord(deleteRecord, _ => true, _ => false)
+            ],
+            repositoryManagementService: repositoryService);
+
+        await viewModel.RestoreRemovedRepositoryAsync(viewModel.RemovedRepositories[0]);
+        await viewModel.PermanentlyDeleteRemovedRepositoryAsync(RemovedRepositoryViewModel.FromRecord(deleteRecord, _ => true, _ => false));
+
+        Assert.Equal(1, repositoryService.RestoreCallCount);
+        Assert.Equal(1, repositoryService.DeleteCallCount);
+        Assert.Empty(viewModel.RemovedRepositories);
+    }
+
+    [Fact]
+    public async Task RemovedRepositoryRestoreAs_CallsManagementServiceWithCategoryAndFolderName()
+    {
+        var restoreRecord = RemovedRecord("RestoreAsMe");
+        var repositoryService = new FakeRepositoryManagementService();
+        repositoryService.RestoreAsHandler = (libraryRoot, record, category, folderName, _) =>
+        {
+            Assert.Equal(TestRoot, libraryRoot);
+            Assert.Equal(restoreRecord.RemovedPath, record.RemovedPath);
+            Assert.Equal("Tools", category);
+            Assert.Equal("RestoredLocalName", folderName);
+            return Task.FromResult(LoadResult(new GitPullerOptions(), [], ["Plugins", "Tools"]));
+        };
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            [new CategoryNavigationItemViewModel("Plugins", Path.Combine(TestRoot, "Plugins"), 0, 0)],
+            [],
+            [RemovedRepositoryViewModel.FromRecord(restoreRecord, _ => true, _ => false)],
+            repositoryManagementService: repositoryService);
+
+        await viewModel.RestoreRemovedRepositoryAsAsync(viewModel.RemovedRepositories[0], "Tools", "RestoredLocalName");
+
+        Assert.Equal(1, repositoryService.RestoreAsCallCount);
+        Assert.Empty(viewModel.RemovedRepositories);
+    }
+
+    [Fact]
+    public async Task CoreRepositoryManagementService_RestoreAsRejectsBlankFolderName()
+    {
+        var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        var removedPath = Path.Combine(libraryRoot, ".mygitpuller", "removed", "Plugins", "BlankNameRepo");
+        Directory.CreateDirectory(removedPath);
+        var removed = new RemovedRepositoryRecord
+        {
+            Name = "BlankNameRepo",
+            Category = "Plugins",
+            OriginalPath = Path.Combine(libraryRoot, "Plugins", "BlankNameRepo"),
+            RemovedPath = removedPath,
+            RemoteUrl = "https://github.com/example/BlankNameRepo.git",
+            RemovedAt = DateTimeOffset.UtcNow
+        };
+        var config = new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins"],
+            RemovedRepositories = [removed]
+        };
+        var configStore = new LibraryConfigStore();
+        await configStore.SaveAsync(config, CancellationToken.None);
+        var service = new CoreRepositoryManagementService(configStore);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RestoreRepositoryAsAsync(libraryRoot, removed, "Plugins", " ", CancellationToken.None));
+
+        Assert.Contains("folder name", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(Directory.Exists(removedPath));
+        Assert.False(Directory.Exists(Path.Combine(libraryRoot, "Plugins", "restore")));
+    }
+
+    [Fact]
+    public async Task LauncherActions_InvokeInjectedLauncherForRepositoryAndRemovedTargets()
+    {
+        var launcher = new FakeFileSystemLauncher();
+        var removedRecord = RemovedRecord("RemovedRepo");
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            [new CategoryNavigationItemViewModel("Plugins", Path.Combine(TestRoot, "Plugins"), 1, 0)],
+            [Result("OpenMe", RepositoryResultStatus.Updated)],
+            [RemovedRepositoryViewModel.FromRecord(removedRecord, _ => true, _ => false)],
+            launcher: launcher);
+
+        await viewModel.OpenSelectedRepositoryFolderAsync();
+        await viewModel.OpenSelectedRemoteAsync();
+        await viewModel.OpenLibraryFolderAsync();
+        await viewModel.OpenRemovedFolderAsync(viewModel.RemovedRepositories[0]);
+        await viewModel.OpenRemovedOriginalFolderAsync(viewModel.RemovedRepositories[0]);
+        await viewModel.OpenRemovedRemoteAsync(viewModel.RemovedRepositories[0]);
+
+        Assert.Contains(Path.Combine(TestRoot, "Plugins", "OpenMe"), launcher.LaunchedPaths);
+        Assert.Contains(TestRoot, launcher.LaunchedPaths);
+        Assert.Contains(removedRecord.RemovedPath, launcher.LaunchedPaths);
+        Assert.Contains(removedRecord.OriginalPath, launcher.LaunchedPaths);
+        Assert.Contains("https://github.com/example/OpenMe.git", launcher.LaunchedUris);
+        Assert.Contains(removedRecord.RemoteUrl, launcher.LaunchedUris);
+    }
+
+    [Fact]
     public async Task RunSyncAsync_LoadsLibraryUsesRootScopedRequestAndAppendsCompletedResults()
     {
         var failedRepository = Descriptor("Plugins", "FailedRepo");
@@ -413,7 +659,19 @@ public sealed class MainShellViewModelTests
         Assert.Equal("1 of 1 repositories completed", viewModel.RunProgressText);
     }
 
-    private static MainShellViewModel CreateViewModel(params RepositoryResultViewModel[] results)
+    private static MainShellViewModel CreateViewModel(
+        params RepositoryResultViewModel[] results)
+    {
+        return CreateViewModel(
+            repositoryManagementService: null,
+            launcher: null,
+            results);
+    }
+
+    private static MainShellViewModel CreateViewModel(
+        IRepositoryManagementService? repositoryManagementService,
+        IFileSystemLauncher? launcher = null,
+        params RepositoryResultViewModel[] results)
     {
         return new MainShellViewModel(
             TestRoot,
@@ -422,7 +680,9 @@ public sealed class MainShellViewModelTests
                 new CategoryNavigationItemViewModel("Tools", Path.Combine(TestRoot, "Tools"), 1, 0)
             ],
             results,
-            []);
+            [],
+            repositoryManagementService: repositoryManagementService,
+            launcher: launcher);
     }
 
     private static RepositoryResultViewModel Result(
@@ -457,6 +717,20 @@ public sealed class MainShellViewModelTests
             RelatedCommand: "git fetch --all --prune");
     }
 
+    private static FailureDiagnostic InvalidAddDiagnostic(string title)
+    {
+        return new FailureDiagnostic(
+            FailureCategory.InvalidCloneRequest,
+            RetryPolicy.BlockedUntilAction,
+            DiagnosticSeverity.Error,
+            title,
+            "The add request is invalid.",
+            "Fix the clone input and preview it again.",
+            title,
+            RelatedPath: null,
+            RelatedCommand: null);
+    }
+
     private static RepositoryDescriptor Descriptor(string category, string name)
     {
         return new RepositoryDescriptor(
@@ -466,14 +740,70 @@ public sealed class MainShellViewModelTests
             $"https://github.com/example/{name}.git");
     }
 
+    private static RepositoryAddPreview ValidAddPreview(RepositoryAddRequest request)
+    {
+        var repositoryName = string.IsNullOrWhiteSpace(request.FolderNameOverride)
+            ? Path.GetFileNameWithoutExtension(new Uri(request.RemoteUrl).AbsolutePath)
+            : request.FolderNameOverride;
+        var targetPath = Path.Combine(TestRoot, request.Category, repositoryName);
+        var repository = new RepositoryDescriptor(
+            targetPath,
+            repositoryName,
+            request.Category,
+            request.RemoteUrl);
+
+        return new RepositoryAddPreview(
+            TestRoot,
+            request.Category,
+            request.RemoteUrl,
+            repositoryName,
+            targetPath,
+            repository,
+            Diagnostic: null);
+    }
+
+    private static RepositoryAddPreview InvalidAddPreview(RepositoryAddRequest request, string title)
+    {
+        return new RepositoryAddPreview(
+            TestRoot,
+            request.Category,
+            request.RemoteUrl,
+            request.FolderNameOverride ?? string.Empty,
+            TargetPath: string.Empty,
+            Repository: null,
+            Diagnostic: InvalidAddDiagnostic(title));
+    }
+
+    private static RemovedRepositoryRecord RemovedRecord(string name)
+    {
+        return new RemovedRepositoryRecord
+        {
+            Name = name,
+            Category = "Plugins",
+            OriginalPath = Path.Combine(TestRoot, "Plugins", name),
+            RemovedPath = Path.Combine(TestRoot, ".mygitpuller", "removed", "Plugins", name),
+            RemoteUrl = $"https://github.com/example/{name}.git",
+            RemovedAt = DateTimeOffset.UtcNow
+        };
+    }
+
     private static GitPullerLibraryLoadResult LoadResult(params RepositoryDescriptor[] repositories)
+    {
+        return LoadResult(new GitPullerOptions(), repositories, ["Plugins", "Tools"]);
+    }
+
+    private static GitPullerLibraryLoadResult LoadResult(
+        GitPullerOptions options,
+        IReadOnlyList<RepositoryDescriptor> repositories,
+        IReadOnlyList<string> configuredCategories,
+        IReadOnlyList<RemovedRepositoryRecord>? removedRepositories = null)
     {
         return new GitPullerLibraryLoadResult(
             TestRoot,
-            new GitPullerOptions(),
+            options,
             new RepositoryInventory(TestRoot, repositories),
-            [],
-            ["Plugins", "Tools"]);
+            removedRepositories ?? [],
+            configuredCategories);
     }
 
     private static RepoResult RepoResultFor(
@@ -509,6 +839,107 @@ public sealed class MainShellViewModelTests
                 changedProperties.Add(args.PropertyName);
             }
         };
+    }
+
+    private sealed class FakeRepositoryManagementService : IRepositoryManagementService
+    {
+        private int restoreCallCount;
+        private int restoreAsCallCount;
+        private int deleteCallCount;
+
+        public Func<RepositoryAddRequest, RepositoryAddPreview>? PreviewHandler { get; set; }
+        public Func<RepositoryAddRequest, GitPullerOptions, CancellationToken, Task<RepositoryAddWorkflowResult>>? CloneHandler { get; set; }
+        public Func<string, GitPullerOptions, CancellationToken, Task<GitPullerLibraryLoadResult>>? SaveOptionsHandler { get; set; }
+        public Func<string, RemovedRepositoryRecord, CancellationToken, Task<GitPullerLibraryLoadResult>>? RestoreHandler { get; set; }
+        public Func<string, RemovedRepositoryRecord, string, string, CancellationToken, Task<GitPullerLibraryLoadResult>>? RestoreAsHandler { get; set; }
+        public Func<string, RemovedRepositoryRecord, CancellationToken, Task<GitPullerLibraryLoadResult>>? DeleteHandler { get; set; }
+        public RepositoryAddRequest? LastPreviewRequest { get; private set; }
+        public RepositoryAddRequest? LastCloneRequest { get; private set; }
+        public int RestoreCallCount => restoreCallCount;
+        public int RestoreAsCallCount => restoreAsCallCount;
+        public int DeleteCallCount => deleteCallCount;
+
+        public RepositoryAddPreview PreviewAddRepository(RepositoryAddRequest request)
+        {
+            LastPreviewRequest = request;
+            return PreviewHandler?.Invoke(request)
+                ?? InvalidAddPreview(request, "Preview handler was not configured");
+        }
+
+        public Task<RepositoryAddWorkflowResult> CloneRepositoryAsync(
+            RepositoryAddRequest request,
+            GitPullerOptions options,
+            CancellationToken cancellationToken)
+        {
+            LastCloneRequest = request;
+            return CloneHandler?.Invoke(request, options, cancellationToken)
+                ?? Task.FromResult(new RepositoryAddWorkflowResult(
+                    new RepositoryAddResult(
+                        InvalidAddPreview(request, "Clone handler was not configured"),
+                        Repository: null,
+                        Diagnostic: InvalidAddDiagnostic("Clone handler was not configured"),
+                        GitResult: null),
+                    LibraryLoadResult: null));
+        }
+
+        public Task<GitPullerLibraryLoadResult> SaveDefaultOptionsAsync(
+            string libraryRoot,
+            GitPullerOptions options,
+            CancellationToken cancellationToken)
+        {
+            return SaveOptionsHandler?.Invoke(libraryRoot, options, cancellationToken)
+                ?? Task.FromResult(LoadResult(options, [], ["Plugins", "Tools"]));
+        }
+
+        public Task<GitPullerLibraryLoadResult> RestoreRepositoryAsync(
+            string libraryRoot,
+            RemovedRepositoryRecord removedRepository,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref restoreCallCount);
+            return RestoreHandler?.Invoke(libraryRoot, removedRepository, cancellationToken)
+                ?? Task.FromResult(LoadResult(new GitPullerOptions(), [], ["Plugins", "Tools"]));
+        }
+
+        public Task<GitPullerLibraryLoadResult> RestoreRepositoryAsAsync(
+            string libraryRoot,
+            RemovedRepositoryRecord removedRepository,
+            string category,
+            string folderName,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref restoreAsCallCount);
+            return RestoreAsHandler?.Invoke(libraryRoot, removedRepository, category, folderName, cancellationToken)
+                ?? Task.FromResult(LoadResult(new GitPullerOptions(), [], ["Plugins", "Tools"]));
+        }
+
+        public Task<GitPullerLibraryLoadResult> PermanentlyDeleteRepositoryAsync(
+            string libraryRoot,
+            RemovedRepositoryRecord removedRepository,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref deleteCallCount);
+            return DeleteHandler?.Invoke(libraryRoot, removedRepository, cancellationToken)
+                ?? Task.FromResult(LoadResult(new GitPullerOptions(), [], ["Plugins", "Tools"]));
+        }
+    }
+
+    private sealed class FakeFileSystemLauncher : IFileSystemLauncher
+    {
+        public List<string> LaunchedPaths { get; } = [];
+        public List<string?> LaunchedUris { get; } = [];
+
+        public Task<bool> LaunchPathAsync(string path)
+        {
+            LaunchedPaths.Add(path);
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> LaunchUriAsync(string uri)
+        {
+            LaunchedUris.Add(uri);
+            return Task.FromResult(true);
+        }
     }
 
     private sealed class FakeGitPullerSyncService : IGitPullerSyncService

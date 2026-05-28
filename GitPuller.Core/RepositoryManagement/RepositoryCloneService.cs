@@ -50,7 +50,7 @@ public sealed class RepositoryCloneService
         var remoteUrl = request.RemoteUrl?.Trim() ?? string.Empty;
         var categoryText = request.Category?.Trim() ?? string.Empty;
 
-        if (!TryDeriveRepositoryName(remoteUrl, out var repositoryName, out var repositoryNameFailure))
+        if (!TryDeriveRepositoryName(remoteUrl, out var derivedRepositoryName, out var repositoryNameFailure))
         {
             return CreateInvalidPreview(
                 libraryRoot,
@@ -64,6 +64,21 @@ public sealed class RepositoryCloneService
                     explanation: "The clone source must be a valid Git URL, SSH remote, or local repository path.",
                     evidence: string.IsNullOrWhiteSpace(remoteUrl) ? "Clone source was empty." : remoteUrl,
                     relatedPath: null));
+        }
+
+        if (!TryResolveRepositoryName(
+            request.FolderNameOverride,
+            derivedRepositoryName,
+            out var repositoryName,
+            out var folderNameFailure))
+        {
+            return CreateInvalidPreview(
+                libraryRoot,
+                categoryText,
+                remoteUrl,
+                derivedRepositoryName,
+                targetPath: string.Empty,
+                folderNameFailure!);
         }
 
         if (!TryNormalizeCategorySegments(categoryText, out var categorySegments, out var normalizedCategory, out var categoryFailure))
@@ -342,6 +357,23 @@ public sealed class RepositoryCloneService
 
         diagnostic = null;
         return true;
+    }
+
+    private static bool TryResolveRepositoryName(
+        string? folderNameOverride,
+        string derivedRepositoryName,
+        out string repositoryName,
+        out FailureDiagnostic? diagnostic)
+    {
+        if (string.IsNullOrWhiteSpace(folderNameOverride))
+        {
+            repositoryName = derivedRepositoryName;
+            diagnostic = null;
+            return true;
+        }
+
+        repositoryName = folderNameOverride;
+        return TryValidatePathSegment(repositoryName, out diagnostic);
     }
 
     private static bool TryNormalizeCategorySegments(
