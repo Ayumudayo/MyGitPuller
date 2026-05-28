@@ -8,6 +8,13 @@ namespace GitPuller.WinUI.Tests;
 public sealed class MainShellViewModelTests
 {
     private static readonly string TestRoot = Path.Combine(Path.GetTempPath(), "MyGitPullerWinUITests");
+    private static readonly string RepositoryRoot = Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory,
+        "..",
+        "..",
+        "..",
+        "..",
+        ".."));
 
     [Fact]
     public void VisibleResults_SortsFailedWarningUpdatedClean_WhenCleanRowsShown()
@@ -101,6 +108,28 @@ public sealed class MainShellViewModelTests
         Assert.False(string.IsNullOrWhiteSpace(result.StatusIcon));
         Assert.False(string.IsNullOrWhiteSpace(result.StatusResourceKey));
         Assert.DoesNotContain("Brush", result.StatusIcon, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StatusVisual_MainPageUsesThemeResourceStatusBadgeTemplates()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+
+        Assert.Contains("RepositoryResultStatusBadgeTemplateSelector", xaml, StringComparison.Ordinal);
+        Assert.Contains("{ThemeResource GitPullerFailedBrush}", xaml, StringComparison.Ordinal);
+        Assert.Contains("{ThemeResource GitPullerWarningBrush}", xaml, StringComparison.Ordinal);
+        Assert.Contains("{ThemeResource GitPullerUpdatedBrush}", xaml, StringComparison.Ordinal);
+        Assert.Contains("{ThemeResource GitPullerCleanBrush}", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("ResourceKeyToBrushConverter", xaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StatusVisual_AppResourcesDoesNotRegisterBrushConverter()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Resources", "AppResources.xaml");
+
+        Assert.DoesNotContain("ResourceKeyToBrushConverter", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("xmlns:converters", xaml, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1458,6 +1487,12 @@ public sealed class MainShellViewModelTests
                 changedProperties.Add(args.PropertyName);
             }
         };
+    }
+
+    private static string ReadRepositoryFile(params string[] relativeSegments)
+    {
+        var path = Path.Combine([RepositoryRoot, .. relativeSegments]);
+        return File.ReadAllText(path);
     }
 
     private static object FindTreeNode(MainShellViewModel viewModel, string fullCategoryName)

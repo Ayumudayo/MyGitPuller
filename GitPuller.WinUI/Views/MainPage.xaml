@@ -5,9 +5,119 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:selectors="using:GitPuller_WinUI.Selectors"
     xmlns:vm="using:GitPuller_WinUI.ViewModels"
     RequestedTheme="Dark"
     mc:Ignorable="d">
+
+    <Page.Resources>
+        <DataTemplate x:Key="FailedStatusBadgeTemplate" x:DataType="vm:RepositoryResultViewModel">
+            <Border
+                Padding="8,4"
+                Background="{ThemeResource GitPullerSurfaceAltBrush}"
+                BorderBrush="{ThemeResource GitPullerFailedBrush}"
+                BorderThickness="1"
+                CornerRadius="6"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top">
+                <StackPanel
+                    Orientation="Horizontal"
+                    Spacing="6">
+                    <FontIcon
+                        FontSize="12"
+                        Foreground="{ThemeResource GitPullerFailedBrush}"
+                        Glyph="{x:Bind StatusIcon}" />
+                    <TextBlock
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource GitPullerFailedBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="{x:Bind StatusText}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="WarningStatusBadgeTemplate" x:DataType="vm:RepositoryResultViewModel">
+            <Border
+                Padding="8,4"
+                Background="{ThemeResource GitPullerSurfaceAltBrush}"
+                BorderBrush="{ThemeResource GitPullerWarningBrush}"
+                BorderThickness="1"
+                CornerRadius="6"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top">
+                <StackPanel
+                    Orientation="Horizontal"
+                    Spacing="6">
+                    <FontIcon
+                        FontSize="12"
+                        Foreground="{ThemeResource GitPullerWarningBrush}"
+                        Glyph="{x:Bind StatusIcon}" />
+                    <TextBlock
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource GitPullerWarningBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="{x:Bind StatusText}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="UpdatedStatusBadgeTemplate" x:DataType="vm:RepositoryResultViewModel">
+            <Border
+                Padding="8,4"
+                Background="{ThemeResource GitPullerSurfaceAltBrush}"
+                BorderBrush="{ThemeResource GitPullerUpdatedBrush}"
+                BorderThickness="1"
+                CornerRadius="6"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top">
+                <StackPanel
+                    Orientation="Horizontal"
+                    Spacing="6">
+                    <FontIcon
+                        FontSize="12"
+                        Foreground="{ThemeResource GitPullerUpdatedBrush}"
+                        Glyph="{x:Bind StatusIcon}" />
+                    <TextBlock
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource GitPullerUpdatedBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="{x:Bind StatusText}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="CleanStatusBadgeTemplate" x:DataType="vm:RepositoryResultViewModel">
+            <Border
+                Padding="8,4"
+                Background="{ThemeResource GitPullerSurfaceAltBrush}"
+                BorderBrush="{ThemeResource GitPullerCleanBrush}"
+                BorderThickness="1"
+                CornerRadius="6"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top">
+                <StackPanel
+                    Orientation="Horizontal"
+                    Spacing="6">
+                    <FontIcon
+                        FontSize="12"
+                        Foreground="{ThemeResource GitPullerCleanBrush}"
+                        Glyph="{x:Bind StatusIcon}" />
+                    <TextBlock
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource GitPullerCleanBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="{x:Bind StatusText}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <selectors:RepositoryResultStatusBadgeTemplateSelector
+            x:Key="RepositoryResultStatusBadgeTemplateSelector"
+            CleanTemplate="{StaticResource CleanStatusBadgeTemplate}"
+            FailedTemplate="{StaticResource FailedStatusBadgeTemplate}"
+            UpdatedTemplate="{StaticResource UpdatedStatusBadgeTemplate}"
+            WarningTemplate="{StaticResource WarningStatusBadgeTemplate}" />
+    </Page.Resources>
 
     <Grid>
         <VisualStateManager.VisualStateGroups>
@@ -490,30 +600,13 @@
                                                 <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
 
-                                            <Border
+                                            <ContentControl
                                                 Grid.Row="0"
                                                 Grid.Column="0"
-                                                Padding="8,4"
-                                                Background="{ThemeResource GitPullerSurfaceAltBrush}"
-                                                BorderBrush="{x:Bind StatusResourceKey, Converter={StaticResource ResourceKeyToBrushConverter}}"
-                                                BorderThickness="1"
-                                                CornerRadius="6"
+                                                Content="{x:Bind}"
+                                                ContentTemplateSelector="{StaticResource RepositoryResultStatusBadgeTemplateSelector}"
                                                 HorizontalAlignment="Left"
-                                                VerticalAlignment="Top">
-                                                <StackPanel
-                                                    Orientation="Horizontal"
-                                                    Spacing="6">
-                                                    <FontIcon
-                                                        FontSize="12"
-                                                        Foreground="{x:Bind StatusResourceKey, Converter={StaticResource ResourceKeyToBrushConverter}}"
-                                                        Glyph="{x:Bind StatusIcon}" />
-                                                    <TextBlock
-                                                        FontWeight="SemiBold"
-                                                        Foreground="{x:Bind StatusResourceKey, Converter={StaticResource ResourceKeyToBrushConverter}}"
-                                                        Style="{StaticResource CaptionTextBlockStyle}"
-                                                        Text="{x:Bind StatusText}" />
-                                                </StackPanel>
-                                            </Border>
+                                                VerticalAlignment="Top" />
                                             <TextBlock
                                                 Grid.Row="0"
                                                 Grid.Column="1"
