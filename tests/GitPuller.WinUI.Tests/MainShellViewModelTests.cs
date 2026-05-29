@@ -235,20 +235,43 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
-    public void ResizeHandles_UseHairlineVisualInsideLargerHitTarget()
+    public void ResizeHandles_KeepTransparentHitTargetWithoutSeparateVisualBar()
     {
         var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
 
         Assert.Contains("x:Key=\"VerticalPaneResizeHandleStyle\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Key=\"HorizontalPaneResizeHandleStyle\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Background=\"Transparent\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("Width=\"1\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("Height=\"1\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Width=\"6\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Height=\"6\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Style=\"{StaticResource VerticalPaneResizeHandleStyle}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Style=\"{StaticResource HorizontalPaneResizeHandleStyle}\"", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("<Border Background=\"{ThemeResource GitPullerAccentBrush}\" />", xaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResizeHandles_DoNotRenderVisibleBarsInTheHandleTemplate()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+        var verticalStyleStart = xaml.IndexOf("x:Key=\"VerticalPaneResizeHandleStyle\"", StringComparison.Ordinal);
+        var horizontalStyleStart = xaml.IndexOf("x:Key=\"HorizontalPaneResizeHandleStyle\"", StringComparison.Ordinal);
+        Assert.True(verticalStyleStart >= 0);
+        Assert.True(horizontalStyleStart > verticalStyleStart);
+
+        var verticalStyle = xaml[verticalStyleStart..horizontalStyleStart];
+        var horizontalStyleEnd = xaml.IndexOf("</Style>", horizontalStyleStart, StringComparison.Ordinal);
+        Assert.True(horizontalStyleEnd > horizontalStyleStart);
+        var horizontalStyle = xaml[horizontalStyleStart..horizontalStyleEnd];
+
+        Assert.Contains("Background=\"Transparent\"", verticalStyle, StringComparison.Ordinal);
+        Assert.DoesNotContain("<Border", verticalStyle, StringComparison.Ordinal);
+        Assert.DoesNotContain("GitPullerAccentBrush", verticalStyle, StringComparison.Ordinal);
+        Assert.DoesNotContain("GitPullerBorderBrush", verticalStyle, StringComparison.Ordinal);
+
+        Assert.Contains("Background=\"Transparent\"", horizontalStyle, StringComparison.Ordinal);
+        Assert.DoesNotContain("<Border", horizontalStyle, StringComparison.Ordinal);
+        Assert.DoesNotContain("GitPullerAccentBrush", horizontalStyle, StringComparison.Ordinal);
+        Assert.DoesNotContain("GitPullerBorderBrush", horizontalStyle, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -291,6 +314,35 @@ public sealed class MainShellViewModelTests
             "ViewModel.HasSelectedResult && ViewModel.SelectedResultCanRetry && ViewModel.IsSelectedResultRetrySecondary",
             codeBehind,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DetailsPane_KeepsActionBarsOutsideScrollableContent()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+
+        var diagnosticsScrollerStart = xaml.IndexOf("x:Name=\"DetailsDiagnosticsScroller\"", StringComparison.Ordinal);
+        var diagnosticsScrollerEnd = diagnosticsScrollerStart < 0
+            ? -1
+            : xaml.IndexOf("</ScrollViewer>", diagnosticsScrollerStart, StringComparison.Ordinal);
+        var diagnosticsActionBarStart = xaml.IndexOf("x:Name=\"DetailsDiagnosticsActionBar\"", StringComparison.Ordinal);
+        var infoScrollerStart = xaml.IndexOf("x:Name=\"DetailsRepositoryInfoScroller\"", StringComparison.Ordinal);
+        var infoScrollerEnd = infoScrollerStart < 0
+            ? -1
+            : xaml.IndexOf("</ScrollViewer>", infoScrollerStart, StringComparison.Ordinal);
+        var infoActionBarStart = xaml.IndexOf("x:Name=\"DetailsRepositoryInfoActionBar\"", StringComparison.Ordinal);
+
+        Assert.True(diagnosticsScrollerStart >= 0);
+        Assert.True(diagnosticsScrollerEnd > diagnosticsScrollerStart);
+        Assert.True(diagnosticsActionBarStart > diagnosticsScrollerEnd);
+        Assert.Contains("Grid.Row=\"1\"", xaml[diagnosticsActionBarStart..Math.Min(xaml.Length, diagnosticsActionBarStart + 180)], StringComparison.Ordinal);
+        Assert.DoesNotContain("Open folder", xaml[diagnosticsScrollerStart..diagnosticsScrollerEnd], StringComparison.Ordinal);
+
+        Assert.True(infoScrollerStart >= 0);
+        Assert.True(infoScrollerEnd > infoScrollerStart);
+        Assert.True(infoActionBarStart > infoScrollerEnd);
+        Assert.Contains("Grid.Row=\"1\"", xaml[infoActionBarStart..Math.Min(xaml.Length, infoActionBarStart + 180)], StringComparison.Ordinal);
+        Assert.DoesNotContain("Open remote", xaml[infoScrollerStart..infoScrollerEnd], StringComparison.Ordinal);
     }
 
     [Fact]

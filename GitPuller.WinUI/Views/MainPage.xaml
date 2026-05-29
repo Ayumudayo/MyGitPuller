@@ -112,12 +112,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="controls:PaneResizeHandle">
-                        <Grid Background="Transparent">
-                            <Border
-                                Width="1"
-                                HorizontalAlignment="Center"
-                                Background="{ThemeResource GitPullerAccentBrush}" />
-                        </Grid>
+                        <Grid Background="Transparent" />
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -127,12 +122,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="controls:PaneResizeHandle">
-                        <Grid Background="Transparent">
-                            <Border
-                                Height="1"
-                                VerticalAlignment="Center"
-                                Background="{ThemeResource GitPullerAccentBrush}" />
-                        </Grid>
+                        <Grid Background="Transparent" />
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -604,6 +594,7 @@
                         </Grid.ColumnDefinitions>
 
                         <Border
+                            x:Name="DetailsDiagnosticsPanel"
                             Padding="14,12"
                             Background="{ThemeResource GitPullerPanelBrush}"
                             BorderBrush="{ThemeResource GitPullerBorderBrush}"
@@ -611,68 +602,64 @@
                             CornerRadius="{StaticResource GitPullerPanelCornerRadius}">
                             <Grid RowSpacing="8">
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
                                     <RowDefinition Height="*" />
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                <TextBlock
-                                    Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
-                                    Text="Diagnostics" />
-                                <TextBlock
-                                    Grid.Row="1"
-                                    Style="{StaticResource GitPullerPanelTitleTextBlockStyle}"
-                                    Text="{Binding SelectedResultDiagnosticTitle}" />
-                                <TextBlock
-                                    Grid.Row="2"
-                                    Foreground="{ThemeResource GitPullerSubtleTextBrush}"
-                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                    Text="{Binding SelectedResultDiagnosticExplanation}" />
-                                <Border
-                                    Grid.Row="3"
-                                    Padding="10"
-                                    Background="{ThemeResource GitPullerPanelAltBrush}"
-                                    BorderBrush="{ThemeResource GitPullerBorderBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="6">
-                                    <Grid ColumnSpacing="12" RowSpacing="6">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="120" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Style="{StaticResource GitPullerMicroLabelTextBlockStyle}" Text="Retry policy" />
-                                        <TextBlock
-                                            Grid.Column="1"
-                                            Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
-                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{Binding SelectedResultRetryPolicyText}" />
-                                        <TextBlock
-                                            Grid.Row="1"
-                                            Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
-                                            Text="Recommended action" />
-                                        <StackPanel
-                                            Grid.Row="1"
-                                            Grid.Column="1"
-                                            Spacing="4">
-                                            <TextBlock
-                                                Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
-                                                Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                Text="{Binding SelectedResultSuggestedAction}" />
-                                            <TextBlock
-                                                Foreground="{ThemeResource GitPullerSubtleTextBrush}"
-                                                Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                Text="{Binding SelectedResultRetryPolicyDescription}" />
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                                <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto">
+                                <ScrollViewer
+                                    x:Name="DetailsDiagnosticsScroller"
+                                    Grid.Row="0"
+                                    VerticalScrollBarVisibility="Auto">
                                     <StackPanel Spacing="8">
+                                        <TextBlock
+                                            Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
+                                            Text="Diagnostics" />
+                                        <TextBlock
+                                            Style="{StaticResource GitPullerPanelTitleTextBlockStyle}"
+                                            Text="{Binding SelectedResultDiagnosticTitle}" />
+                                        <TextBlock
+                                            Foreground="{ThemeResource GitPullerSubtleTextBrush}"
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{Binding SelectedResultDiagnosticExplanation}" />
+                                        <Border
+                                            Padding="10"
+                                            Background="{ThemeResource GitPullerPanelAltBrush}"
+                                            BorderBrush="{ThemeResource GitPullerBorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="6">
+                                            <Grid ColumnSpacing="12" RowSpacing="6">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Style="{StaticResource GitPullerMicroLabelTextBlockStyle}" Text="Retry policy" />
+                                                <TextBlock
+                                                    Grid.Column="1"
+                                                    Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                                    Text="{Binding SelectedResultRetryPolicyText}" />
+                                                <TextBlock
+                                                    Grid.Row="1"
+                                                    Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
+                                                    Text="Recommended action" />
+                                                <StackPanel
+                                                    Grid.Row="1"
+                                                    Grid.Column="1"
+                                                    Spacing="4">
+                                                    <TextBlock
+                                                        Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                                        Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                                        Text="{Binding SelectedResultSuggestedAction}" />
+                                                    <TextBlock
+                                                        Foreground="{ThemeResource GitPullerSubtleTextBrush}"
+                                                        Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                                        Text="{Binding SelectedResultRetryPolicyDescription}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
                                         <TextBlock
                                             Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
                                             Text="Evidence" />
@@ -693,7 +680,8 @@
                                     </StackPanel>
                                 </ScrollViewer>
                                 <StackPanel
-                                    Grid.Row="5"
+                                    x:Name="DetailsDiagnosticsActionBar"
+                                    Grid.Row="1"
                                     Orientation="Horizontal"
                                     Spacing="8">
                                     <Button
@@ -715,6 +703,7 @@
                         </Border>
 
                         <Border
+                            x:Name="DetailsRepositoryInfoPanel"
                             Grid.Column="1"
                             Padding="14,12"
                             Background="{ThemeResource GitPullerPanelBrush}"
@@ -723,15 +712,17 @@
                             CornerRadius="{StaticResource GitPullerPanelCornerRadius}">
                             <Grid RowSpacing="8">
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
                                     <RowDefinition Height="*" />
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                <TextBlock
-                                    Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
-                                    Text="Repository info" />
-                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                <ScrollViewer
+                                    x:Name="DetailsRepositoryInfoScroller"
+                                    Grid.Row="0"
+                                    VerticalScrollBarVisibility="Auto">
                                     <StackPanel Spacing="8">
+                                        <TextBlock
+                                            Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
+                                            Text="Repository info" />
                                         <TextBlock Style="{StaticResource GitPullerPanelTitleTextBlockStyle}" Text="{Binding SelectedResultCategory}" />
                                         <TextBlock
                                             Foreground="{ThemeResource GitPullerSubtleTextBrush}"
@@ -772,7 +763,8 @@
                                     </StackPanel>
                                 </ScrollViewer>
                                 <StackPanel
-                                    Grid.Row="2"
+                                    x:Name="DetailsRepositoryInfoActionBar"
+                                    Grid.Row="1"
                                     Orientation="Horizontal"
                                     Spacing="8">
                                     <Button
