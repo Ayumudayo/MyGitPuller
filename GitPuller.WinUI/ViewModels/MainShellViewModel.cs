@@ -617,7 +617,6 @@ public sealed class MainShellViewModel : ObservableObject
             return;
         }
 
-        hasInitialized = true;
         IsRunning = true;
         ClearRunError();
         SetRunProgress(0, 0, "Scanning library...");
@@ -632,13 +631,16 @@ public sealed class MainShellViewModel : ObservableObject
                 loadResult.Inventory.Repositories.Count == 0
                     ? "No repositories found in the selected library root."
                     : $"Ready to run {loadResult.Inventory.Repositories.Count} repositories.");
+            hasInitialized = true;
         }
         catch (OperationCanceledException)
         {
+            hasInitialized = false;
             SetRunError("Library scan was canceled.");
         }
         catch (Exception ex)
         {
+            hasInitialized = false;
             SetRunError(ex.Message);
         }
         finally
@@ -673,15 +675,15 @@ public sealed class MainShellViewModel : ObservableObject
 
         IsRunning = true;
         ClearRunError();
-        ClearLoadedRunState();
-        LibraryRoot = normalizedRoot;
-        ClearAddRepositoryMessages();
         SetRunProgress(0, 0, "Scanning library...");
 
         try
         {
-            await SaveAppSettingsAsync(normalizedRoot, cancellationToken);
-            var loadResult = await LoadLibraryForCurrentRootAsync(resetResults: true, cancellationToken);
+            var loadResult = await LoadLibraryForRootAsync(normalizedRoot, cancellationToken);
+            await SaveAppSettingsAsync(loadResult.LibraryRoot, cancellationToken);
+            ClearLoadedRunState();
+            ClearAddRepositoryMessages();
+            ApplyLibraryLoadResult(loadResult, resetResults: true);
             SetRunProgress(
                 0,
                 loadResult.Inventory.Repositories.Count,
@@ -1186,7 +1188,6 @@ public sealed class MainShellViewModel : ObservableObject
     private async Task SaveAppSettingsAsync(string selectedRoot, CancellationToken cancellationToken)
     {
         var recentRoots = CreateRecentLibraryRootList(selectedRoot, RecentLibraryRoots);
-        ReplaceRecentLibraryRoots(recentRoots);
 
         if (appSettingsService is not null)
         {
@@ -1194,6 +1195,8 @@ public sealed class MainShellViewModel : ObservableObject
                 new AppSettings(selectedRoot, recentRoots),
                 cancellationToken);
         }
+
+        ReplaceRecentLibraryRoots(recentRoots);
     }
 
     private void ReplaceRecentLibraryRoots(IEnumerable<string> roots)
@@ -1651,14 +1654,21 @@ public sealed class MainShellViewModel : ObservableObject
         bool resetResults,
         CancellationToken cancellationToken)
     {
+        var loadResult = await LoadLibraryForRootAsync(LibraryRoot, cancellationToken);
+        ApplyLibraryLoadResult(loadResult, resetResults);
+        return loadResult;
+    }
+
+    private async Task<GitPullerLibraryLoadResult> LoadLibraryForRootAsync(
+        string libraryRoot,
+        CancellationToken cancellationToken)
+    {
         if (syncService is null)
         {
             throw new InvalidOperationException("Sync service is not configured.");
         }
 
-        var loadResult = await syncService.LoadLibraryAsync(LibraryRoot, cancellationToken);
-        ApplyLibraryLoadResult(loadResult, resetResults);
-        return loadResult;
+        return await syncService.LoadLibraryAsync(libraryRoot, cancellationToken);
     }
 
     private IProgress<GitPullerProgressEvent> CreateProgress()

@@ -442,6 +442,44 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task InitializeAsync_WhenInitialLoadFails_AllowsRetry()
+    {
+        var root = Path.Combine(TestRoot, "retry-initialize-root");
+        var loadedRepository = new RepositoryDescriptor(
+            Path.Combine(root, "Plugins", "LoadedRepo"),
+            "LoadedRepo",
+            "Plugins",
+            "https://github.com/example/LoadedRepo.git");
+        var loadResult = new GitPullerLibraryLoadResult(
+            root,
+            new GitPullerOptions(),
+            new RepositoryInventory(root, [loadedRepository]),
+            [],
+            ["Plugins"]);
+        var service = new FakeGitPullerSyncService(loadResult);
+        var loadAttempts = 0;
+        service.LoadLibraryAsyncHandler = (_, _) =>
+        {
+            loadAttempts++;
+            if (loadAttempts == 1)
+            {
+                throw new IOException("Initial load failed.");
+            }
+
+            return Task.FromResult(loadResult);
+        };
+        var viewModel = new MainShellViewModel(root, service);
+
+        await viewModel.InitializeAsync();
+        await viewModel.InitializeAsync();
+
+        Assert.Equal(2, service.LoadCallCount);
+        Assert.False(viewModel.HasRunError);
+        Assert.Equal(["Plugins"], viewModel.Categories.Select(category => category.Name).ToArray());
+        Assert.Contains("Ready to run 1 repositories", viewModel.CurrentProgressMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ChangeLibraryRootAsync_LoadsNewRootClearsRunStateAndPersistsRecentRoots()
     {
         var initialRoot = Path.Combine(TestRoot, "root-a");
@@ -481,6 +519,94 @@ public sealed class MainShellViewModelTests
             [Path.GetFullPath(newRoot), Path.GetFullPath(initialRoot)],
             appSettings.SavedSettings?.RecentLibraryRoots);
         Assert.Equal(1, service.LoadCallCount);
+    }
+
+    [Fact]
+    public async Task ChangeLibraryRootAsync_WhenCandidateLoadFails_KeepsPreviousRootResultsAndDoesNotPersist()
+    {
+        var initialRoot = Path.Combine(TestRoot, "root-load-old");
+        var newRoot = Path.Combine(TestRoot, "root-load-fail");
+        var oldResult = Result("OldRepo", RepositoryResultStatus.Failed);
+        var removed = RemovedRepositoryViewModel.FromRecord(
+            RemovedRecord("RemovedOld", initialRoot),
+            _ => true,
+            _ => false);
+        var service = new FakeGitPullerSyncService(new GitPullerLibraryLoadResult(
+            initialRoot,
+            new GitPullerOptions(),
+            new RepositoryInventory(initialRoot, []),
+            [],
+            ["Plugins"]));
+        service.LoadLibraryAsyncHandler = (_, _) =>
+            throw new IOException("Candidate load failed.");
+        var appSettings = new FakeAppSettingsService(new AppSettings(initialRoot, [initialRoot]));
+        var viewModel = new MainShellViewModel(
+            initialRoot,
+            [new CategoryNavigationItemViewModel("Plugins", Path.Combine(initialRoot, "Plugins"), 1, 1)],
+            [oldResult],
+            [removed],
+            service,
+            appSettingsService: appSettings);
+        viewModel.SelectedResult = oldResult;
+
+        await viewModel.ChangeLibraryRootAsync(newRoot);
+
+        Assert.Equal(Path.GetFullPath(initialRoot), viewModel.LibraryRoot);
+        Assert.Same(oldResult, Assert.Single(viewModel.RepositoryResults));
+        Assert.Same(oldResult, viewModel.SelectedResult);
+        Assert.Same(removed, Assert.Single(viewModel.RemovedRepositories));
+        Assert.Equal(["Plugins"], viewModel.Categories.Select(category => category.Name).ToArray());
+        Assert.Equal([Path.GetFullPath(initialRoot)], viewModel.RecentLibraryRoots);
+        Assert.Null(appSettings.SavedSettings);
+        Assert.Equal(0, appSettings.SaveCallCount);
+        Assert.Equal(1, service.LoadCallCount);
+        Assert.True(viewModel.HasRunError);
+        Assert.Contains("Candidate load failed", viewModel.RunErrorMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChangeLibraryRootAsync_WhenSettingsSaveFails_KeepsPreviousRootResultsAndDoesNotMutateRecentRoots()
+    {
+        var initialRoot = Path.Combine(TestRoot, "root-save-old");
+        var newRoot = Path.Combine(TestRoot, "root-save-fail");
+        var oldResult = Result("OldRepo", RepositoryResultStatus.Failed);
+        var newRepository = new RepositoryDescriptor(
+            Path.Combine(newRoot, "Tools", "NewRepo"),
+            "NewRepo",
+            "Tools",
+            "https://github.com/example/NewRepo.git");
+        var loadResult = new GitPullerLibraryLoadResult(
+            newRoot,
+            new GitPullerOptions(),
+            new RepositoryInventory(newRoot, [newRepository]),
+            [],
+            ["Tools"]);
+        var service = new FakeGitPullerSyncService(loadResult);
+        var appSettings = new FakeAppSettingsService(new AppSettings(initialRoot, [initialRoot]))
+        {
+            ThrowOnSave = true
+        };
+        var viewModel = new MainShellViewModel(
+            initialRoot,
+            [new CategoryNavigationItemViewModel("Plugins", Path.Combine(initialRoot, "Plugins"), 1, 1)],
+            [oldResult],
+            [],
+            service,
+            appSettingsService: appSettings);
+        viewModel.SelectedResult = oldResult;
+
+        await viewModel.ChangeLibraryRootAsync(newRoot);
+
+        Assert.Equal(Path.GetFullPath(initialRoot), viewModel.LibraryRoot);
+        Assert.Same(oldResult, Assert.Single(viewModel.RepositoryResults));
+        Assert.Same(oldResult, viewModel.SelectedResult);
+        Assert.Equal(["Plugins"], viewModel.Categories.Select(category => category.Name).ToArray());
+        Assert.Equal([Path.GetFullPath(initialRoot)], viewModel.RecentLibraryRoots);
+        Assert.Null(appSettings.SavedSettings);
+        Assert.Equal(1, appSettings.SaveCallCount);
+        Assert.Equal(1, service.LoadCallCount);
+        Assert.True(viewModel.HasRunError);
+        Assert.Contains("Injected app settings save failure", viewModel.RunErrorMessage, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2589,6 +2715,7 @@ public sealed class MainShellViewModelTests
         public AppSettings? SavedSettings { get; private set; }
         public int LoadCallCount { get; private set; }
         public int SaveCallCount { get; private set; }
+        public bool ThrowOnSave { get; set; }
 
         public Task<AppSettings> LoadAsync(CancellationToken cancellationToken)
         {
@@ -2599,6 +2726,11 @@ public sealed class MainShellViewModelTests
         public Task SaveAsync(AppSettings settings, CancellationToken cancellationToken)
         {
             SaveCallCount++;
+            if (ThrowOnSave)
+            {
+                throw new InvalidOperationException("Injected app settings save failure.");
+            }
+
             SavedSettings = JsonAppSettingsService.Normalize(settings);
             Settings = SavedSettings;
             return Task.CompletedTask;
