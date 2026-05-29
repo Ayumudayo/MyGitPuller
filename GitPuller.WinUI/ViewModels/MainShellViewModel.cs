@@ -19,6 +19,8 @@ public sealed class MainShellViewModel : ObservableObject
     private bool isRunning;
     private bool isRepositoryManagementBusy;
     private bool hasInitialized;
+    private bool deferRepositoryNavigationRefresh;
+    private bool repositoryNavigationRefreshPending;
     private RepositoryResultViewModel? selectedResult;
     private IReadOnlyList<RepositoryResultViewModel>? visibleResultsCache;
     private string selectedResultPath = string.Empty;
@@ -732,6 +734,7 @@ public sealed class MainShellViewModel : ObservableObject
             runCompletionApplied = false;
             SetRunProgress(0, request.Inventory.Repositories.Count, "Starting sync...");
 
+            deferRepositoryNavigationRefresh = true;
             var runResult = await syncService.RunAllAsync(
                 request,
                 CreateProgress(),
@@ -748,6 +751,8 @@ public sealed class MainShellViewModel : ObservableObject
         }
         finally
         {
+            deferRepositoryNavigationRefresh = false;
+            FlushDeferredRepositoryNavigationRefresh();
             IsRunning = false;
         }
     }
@@ -1756,6 +1761,7 @@ public sealed class MainShellViewModel : ObservableObject
             AppendReportPath(
                 GetRunCompletedMessage(runResult),
                 runResult.LatestReportPath));
+        FlushDeferredRepositoryNavigationRefresh();
     }
 
     private static string GetRunCompletedMessage(GitPullerRunResult runResult)
@@ -2117,7 +2123,7 @@ public sealed class MainShellViewModel : ObservableObject
 
     private void RepositoryResults_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        RefreshCategoryNavigationItems();
+        RefreshRepositoryNavigationForResults();
         RaiseResultDerivedPropertiesChanged();
         EnsureSelectedResultIsVisible();
     }
@@ -2189,6 +2195,37 @@ public sealed class MainShellViewModel : ObservableObject
             SetSelectedCategory(
                 Categories.FirstOrDefault(category => string.Equals(category.Name, selectedName, StringComparison.OrdinalIgnoreCase)),
                 updateNavigation: true);
+        }
+    }
+
+    private void RefreshRepositoryNavigationForResults()
+    {
+        if (deferRepositoryNavigationRefresh)
+        {
+            repositoryNavigationRefreshPending = true;
+            return;
+        }
+
+        RefreshCategoryNavigationItems();
+    }
+
+    private void FlushDeferredRepositoryNavigationRefresh()
+    {
+        if (!repositoryNavigationRefreshPending)
+        {
+            return;
+        }
+
+        repositoryNavigationRefreshPending = false;
+        var wasDeferred = deferRepositoryNavigationRefresh;
+        deferRepositoryNavigationRefresh = false;
+        try
+        {
+            RefreshCategoryNavigationItems();
+        }
+        finally
+        {
+            deferRepositoryNavigationRefresh = wasDeferred;
         }
     }
 

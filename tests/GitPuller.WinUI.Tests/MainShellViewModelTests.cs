@@ -2044,6 +2044,8 @@ public sealed class MainShellViewModelTests
         Assert.Equal(2, viewModel.RunProgressTotal);
         Assert.Equal("1 of 2 repositories completed", viewModel.RunProgressText);
         Assert.Equal(["FailedRepo"], viewModel.RepositoryResults.Select(result => result.Name).ToArray());
+        Assert.Equal(0, Assert.Single(viewModel.Categories, category => category.Name == "Plugins").AttentionCount);
+        Assert.Equal(0, GetRequiredPropertyValue<int>(viewModel.RepositoryTreeNodes[0], "AttentionCount"));
 
         releaseRun.SetResult();
         await runTask;
@@ -2055,6 +2057,9 @@ public sealed class MainShellViewModelTests
         Assert.Equal(
             [RepositoryResultStatus.Failed, RepositoryResultStatus.Updated],
             viewModel.VisibleResults.Select(result => result.Status).ToArray());
+        Assert.Equal(1, Assert.Single(viewModel.Categories, category => category.Name == "Plugins").AttentionCount);
+        Assert.Equal(1, GetRequiredPropertyValue<int>(viewModel.RepositoryTreeNodes[0], "AttentionCount"));
+        Assert.Equal(failedRepository.Path, viewModel.SelectedResult?.Path);
         Assert.Equal("2 of 2 repositories completed", viewModel.RunProgressText);
     }
 
@@ -2106,6 +2111,36 @@ public sealed class MainShellViewModelTests
         Assert.Equal(
             [RepositoryResultStatus.Failed, RepositoryResultStatus.Updated],
             viewModel.VisibleResults.Select(result => result.Status).ToArray());
+    }
+
+    [Fact]
+    public async Task RunSyncAsync_FlushesDeferredNavigationRefresh_WhenRunFailsAfterPartialProgress()
+    {
+        var failedRepository = Descriptor("Plugins", "FailedRepo");
+        var service = new FakeGitPullerSyncService(LoadResult(failedRepository));
+        service.RunAllAsyncHandler = (_, progress, _) =>
+        {
+            progress?.Report(GitPullerProgressEvent.RunStarted(1));
+            progress?.Report(GitPullerProgressEvent.RepositoryCompleted(
+                failedRepository,
+                RepoResultFor(
+                    failedRepository,
+                    failed: true,
+                    newCommits: 0,
+                    Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error)),
+                totalRepositories: 1,
+                completedRepositories: 1));
+            throw new InvalidOperationException("Injected run failure after progress.");
+        };
+        var viewModel = new MainShellViewModel(TestRoot, service);
+
+        await viewModel.RunSyncAsync();
+
+        Assert.True(viewModel.HasRunError);
+        Assert.Contains("Injected run failure after progress", viewModel.RunErrorMessage, StringComparison.Ordinal);
+        Assert.Equal(1, Assert.Single(viewModel.Categories, category => category.Name == "Plugins").AttentionCount);
+        Assert.Equal(1, GetRequiredPropertyValue<int>(viewModel.RepositoryTreeNodes[0], "AttentionCount"));
+        Assert.Equal(failedRepository.Path, Assert.Single(viewModel.RepositoryResults).Path);
     }
 
     [Fact]
