@@ -1,15 +1,19 @@
 using System.ComponentModel;
+using Windows.Foundation;
 using GitPuller_WinUI.Services;
 using GitPuller_WinUI.ViewModels;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 
 namespace GitPuller_WinUI.Views;
 
 public sealed partial class MainPage : Page
 {
     private bool suppressFolderTreeSelectionChanged;
+    private PaneResizeTarget? activePaneResizeTarget;
+    private Point lastResizePointerPoint;
 
     public MainShellViewModel ViewModel { get; }
 
@@ -69,8 +73,8 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        var showPrimary = ViewModel.HasSelectedResult && ViewModel.IsSelectedResultRetryPrimary;
-        var showSecondary = ViewModel.HasSelectedResult && !ViewModel.IsSelectedResultRetryPrimary;
+        var showPrimary = ViewModel.HasSelectedResult && ViewModel.SelectedResultCanRetry && ViewModel.IsSelectedResultRetryPrimary;
+        var showSecondary = ViewModel.HasSelectedResult && ViewModel.SelectedResultCanRetry && ViewModel.IsSelectedResultRetrySecondary;
 
         PrimaryRetrySelectedDetailButton.Visibility = showPrimary ? Visibility.Visible : Visibility.Collapsed;
         SecondaryRetrySelectedDetailButton.Visibility = showSecondary ? Visibility.Visible : Visibility.Collapsed;
@@ -105,6 +109,122 @@ public sealed partial class MainPage : Page
     private void CleanFilterButton_Click(object sender, RoutedEventArgs e)
     {
         ViewModel.SelectedResultFilter = RepositoryResultFilter.Clean;
+    }
+
+    private void PaneResizeHandle_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement handle || !TryGetPaneResizeTarget(handle, out var target))
+        {
+            return;
+        }
+
+        activePaneResizeTarget = target;
+        lastResizePointerPoint = e.GetCurrentPoint(MockupShellRoot).Position;
+        handle.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void PaneResizeHandle_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (activePaneResizeTarget is null)
+        {
+            return;
+        }
+
+        var currentPoint = e.GetCurrentPoint(MockupShellRoot).Position;
+        var horizontalChange = currentPoint.X - lastResizePointerPoint.X;
+        var verticalChange = currentPoint.Y - lastResizePointerPoint.Y;
+        lastResizePointerPoint = currentPoint;
+
+        switch (activePaneResizeTarget)
+        {
+            case PaneResizeTarget.Sidebar:
+                ResizeSidebar(horizontalChange);
+                break;
+            case PaneResizeTarget.Details:
+                ResizeDetails(verticalChange);
+                break;
+            case PaneResizeTarget.DetailsColumn:
+                ResizeDetailsColumns(horizontalChange);
+                break;
+        }
+
+        e.Handled = true;
+    }
+
+    private void PaneResizeHandle_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement handle)
+        {
+            handle.ReleasePointerCapture(e.Pointer);
+        }
+
+        activePaneResizeTarget = null;
+        e.Handled = true;
+    }
+
+    private void ResizeSidebar(double horizontalChange)
+    {
+        var requestedWidth = SidebarColumn.ActualWidth + horizontalChange;
+        SidebarColumn.Width = new GridLength(Clamp(
+            requestedWidth,
+            SidebarColumn.MinWidth,
+            SidebarColumn.MaxWidth));
+    }
+
+    private void ResizeDetails(double verticalChange)
+    {
+        var requestedHeight = DetailsRow.ActualHeight - verticalChange;
+        DetailsRow.Height = new GridLength(Clamp(
+            requestedHeight,
+            DetailsRow.MinHeight,
+            DetailsRow.MaxHeight));
+    }
+
+    private void ResizeDetailsColumns(double horizontalChange)
+    {
+        var totalWidth = DetailsSplitGrid.ActualWidth;
+        if (totalWidth <= 0)
+        {
+            return;
+        }
+
+        var minimumRightWidth = DetailsRepositoryInfoColumn.MinWidth;
+        var maximumLeftWidth = Math.Max(DetailsDiagnosticsColumn.MinWidth, totalWidth - minimumRightWidth);
+        var requestedLeftWidth = DetailsDiagnosticsColumn.ActualWidth + horizontalChange;
+        var leftWidth = Clamp(requestedLeftWidth, DetailsDiagnosticsColumn.MinWidth, maximumLeftWidth);
+        var rightWidth = Math.Max(minimumRightWidth, totalWidth - leftWidth);
+
+        DetailsDiagnosticsColumn.Width = new GridLength(leftWidth);
+        DetailsRepositoryInfoColumn.Width = new GridLength(rightWidth);
+    }
+
+    private static bool TryGetPaneResizeTarget(object sender, out PaneResizeTarget target)
+    {
+        target = PaneResizeTarget.Sidebar;
+        if (sender is not FrameworkElement { Tag: string tag })
+        {
+            return false;
+        }
+
+        return Enum.TryParse(tag, ignoreCase: true, out target);
+    }
+
+    private static double Clamp(double value, double minimum, double maximum)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return minimum;
+        }
+
+        return Math.Min(Math.Max(value, minimum), maximum);
+    }
+
+    private enum PaneResizeTarget
+    {
+        Sidebar,
+        Details,
+        DetailsColumn
     }
 
     private void FolderTreeView_SelectionChanged(TreeView sender, TreeViewSelectionChangedEventArgs args)

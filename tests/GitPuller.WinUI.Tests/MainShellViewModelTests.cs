@@ -210,6 +210,73 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public void AcceptedMockupShell_ExposesSubtleResizablePaneBoundaries()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+        var codeBehind = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml.cs");
+
+        Assert.Contains("x:Name=\"SidebarResizeHandle\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"DetailsResizeHandle\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"DetailsColumnResizeHandle\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("controls:PaneResizeHandle", xaml, StringComparison.Ordinal);
+        Assert.Contains("CursorShape=\"SizeWestEast\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("CursorShape=\"SizeNorthSouth\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("PointerPressed=\"PaneResizeHandle_PointerPressed\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("PointerMoved=\"PaneResizeHandle_PointerMoved\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("PointerReleased=\"PaneResizeHandle_PointerReleased\"", xaml, StringComparison.Ordinal);
+        var handleCode = ReadRepositoryFile("GitPuller.WinUI", "Controls", "PaneResizeHandle.cs");
+        Assert.Contains("ProtectedCursor", handleCode, StringComparison.Ordinal);
+        Assert.Contains("InputSystemCursorShape.SizeWestEast", handleCode, StringComparison.Ordinal);
+        Assert.Contains("Opacity = 0.20", handleCode, StringComparison.Ordinal);
+        Assert.Contains("Opacity = 0.65", handleCode, StringComparison.Ordinal);
+        Assert.Contains("ResizeSidebar", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ResizeDetails", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ResizeDetailsColumns", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DiagnosticsPane_ShowsRetryPolicyAndRecommendedAction()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+
+        Assert.Contains("Recommended action", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"{Binding SelectedResultRetryPolicyText}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"{Binding SelectedResultRetryPolicyDescription}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"{Binding SelectedResultSuggestedAction}\"", xaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DiagnosticsPane_PresentsRetryGuidanceBeforeLongEvidence()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+
+        var retryPolicyIndex = xaml.IndexOf("SelectedResultRetryPolicyText", StringComparison.Ordinal);
+        var suggestedActionIndex = xaml.IndexOf("SelectedResultSuggestedAction", StringComparison.Ordinal);
+        var evidenceIndex = xaml.IndexOf("SelectedResultEvidence", StringComparison.Ordinal);
+
+        Assert.True(retryPolicyIndex >= 0);
+        Assert.True(suggestedActionIndex >= 0);
+        Assert.True(evidenceIndex >= 0);
+        Assert.True(retryPolicyIndex < evidenceIndex);
+        Assert.True(suggestedActionIndex < evidenceIndex);
+    }
+
+    [Fact]
+    public void DetailsPane_HidesRetryButtonsWhenSelectedResultCannotRetry()
+    {
+        var codeBehind = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml.cs");
+
+        Assert.Contains(
+            "ViewModel.HasSelectedResult && ViewModel.SelectedResultCanRetry && ViewModel.IsSelectedResultRetryPrimary",
+            codeBehind,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ViewModel.HasSelectedResult && ViewModel.SelectedResultCanRetry && ViewModel.IsSelectedResultRetrySecondary",
+            codeBehind,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RepositoryResult_FromResult_UsesWarningDiagnosticForSuccessfulWarningLog()
     {
         var result = new RepoResult

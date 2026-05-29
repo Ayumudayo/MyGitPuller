@@ -102,6 +102,31 @@ public sealed class GitPullerContractsAndRunnerTests : IDisposable
         Assert.True(result.WorkerSlot > 0);
     }
 
+    [Fact]
+    public async Task RunRepositoryAsync_DoesNotFetchLfs_WhenGitAttributesHasNoLfsFilters()
+    {
+        var repository = CreateTrackedRepository(
+            "non-lfs-gitattributes",
+            gitAttributesText:
+                "# Auto detect text files and perform LF normalization\n"
+                + "* text=auto eol=lf\n"
+                + "*.cs text diff=csharp\n");
+        var request = new GitPullerRunRequest(
+            new GitPullerOptions(),
+            new RepositoryInventory(repository.LibraryRoot, new[] { repository.Descriptor }));
+
+        var runner = new GitPullerRunner();
+        var result = await runner.RunRepositoryAsync(request, repository.Descriptor.Path, progress: null, CancellationToken.None);
+
+        Assert.False(result.Failed);
+        Assert.DoesNotContain(
+            result.Operations,
+            operation => operation.Command.Contains("git lfs fetch --all --prune", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            result.Logs,
+            log => log.Text.Contains("Git LFS fetch failed", StringComparison.OrdinalIgnoreCase));
+    }
+
     public void Dispose()
     {
         try
@@ -116,7 +141,7 @@ public sealed class GitPullerContractsAndRunnerTests : IDisposable
         }
     }
 
-    private TrackedRepository CreateTrackedRepository(string scenarioName)
+    private TrackedRepository CreateTrackedRepository(string scenarioName, string? gitAttributesText = null)
     {
         var scenarioRoot = Path.Combine(tempRoot, scenarioName);
         var remotePath = Path.Combine(scenarioRoot, "remote.git");
@@ -134,7 +159,17 @@ public sealed class GitPullerContractsAndRunnerTests : IDisposable
         RunGit(seedPath, "checkout", "-b", "main");
 
         File.WriteAllText(Path.Combine(seedPath, "README.md"), "seed");
+        if (gitAttributesText is not null)
+        {
+            File.WriteAllText(Path.Combine(seedPath, ".gitattributes"), gitAttributesText);
+        }
+
         RunGit(seedPath, "add", "README.md");
+        if (gitAttributesText is not null)
+        {
+            RunGit(seedPath, "add", ".gitattributes");
+        }
+
         RunGit(seedPath, "commit", "-m", "Initial commit");
         RunGit(seedPath, "push", "-u", "origin", "main");
         RunGit(remotePath, "symbolic-ref", "HEAD", "refs/heads/main");

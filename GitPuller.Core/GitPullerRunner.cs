@@ -766,13 +766,10 @@ public sealed class GitPullerRunner
             return;
         }
 
-        if (!File.Exists(Path.Combine(repoPath, ".gitattributes")))
+        var (rcLsFiles, lfsFilesOutput) = RunGit(repoPath, new[] { "lfs", "ls-files", "--all" }, options, result: null, cancellationToken);
+        if (rcLsFiles != 0 || string.IsNullOrWhiteSpace(lfsFilesOutput))
         {
-            var (rcTrack, trackOutput) = RunGit(repoPath, new[] { "lfs", "track" }, options, result: null, cancellationToken);
-            if (rcTrack != 0 || string.IsNullOrWhiteSpace(trackOutput))
-            {
-                return;
-            }
+            return;
         }
 
         var (rcFetch, outFetch) = RunGit(repoPath, new[] { "lfs", "fetch", "--all", "--prune" }, options, result, cancellationToken);
