@@ -115,6 +115,17 @@
     </Style>
 
     <Style
+        x:Key="GitPullerIconButtonStyle"
+        BasedOn="{StaticResource GitPullerChromeButtonStyle}"
+        TargetType="Button">
+        <Setter Property="Width" Value="30" />
+        <Setter Property="Height" Value="30" />
+        <Setter Property="MinWidth" Value="30" />
+        <Setter Property="MinHeight" Value="30" />
+        <Setter Property="Padding" Value="0" />
+    </Style>
+
+    <Style
         x:Key="GitPullerPrimaryButtonStyle"
         BasedOn="{StaticResource GitPullerChromeButtonStyle}"
         TargetType="Button">

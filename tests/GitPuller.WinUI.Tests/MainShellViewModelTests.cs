@@ -332,6 +332,215 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task AppSettingsService_PersistsSelectedRootAndDeduplicatedRecentRoots()
+    {
+        var settingsPath = Path.Combine(TestRoot, "app-settings", Guid.NewGuid().ToString("N"), "appsettings.json");
+        var rootA = Path.Combine(TestRoot, "libraries", "A");
+        var rootB = Path.Combine(TestRoot, "libraries", "B");
+        var service = new JsonAppSettingsService(settingsPath);
+
+        await service.SaveAsync(
+            new AppSettings(
+                rootA,
+                [rootA, rootB, rootA.ToUpperInvariant(), " "]),
+            CancellationToken.None);
+
+        var loaded = await service.LoadAsync(CancellationToken.None);
+
+        Assert.Equal(Path.GetFullPath(rootA), loaded.SelectedLibraryRoot);
+        Assert.Equal(
+            [Path.GetFullPath(rootA), Path.GetFullPath(rootB)],
+            loaded.RecentLibraryRoots);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_UsesSavedLibraryRootBeforeDefaultRoot()
+    {
+        var savedRoot = Path.Combine(TestRoot, "saved-root");
+        var defaultRoot = Path.Combine(TestRoot, "default-root");
+        var loadedRepository = new RepositoryDescriptor(
+            Path.Combine(savedRoot, "Plugins", "LoadedRepo"),
+            "LoadedRepo",
+            "Plugins",
+            "https://github.com/example/LoadedRepo.git");
+        var loadResult = new GitPullerLibraryLoadResult(
+            savedRoot,
+            new GitPullerOptions(),
+            new RepositoryInventory(savedRoot, [loadedRepository]),
+            [],
+            ["Plugins"]);
+        var service = new FakeGitPullerSyncService(loadResult);
+        var appSettings = new FakeAppSettingsService(
+            new AppSettings(savedRoot, [defaultRoot, savedRoot]));
+        string? requestedRoot = null;
+        service.LoadLibraryAsyncHandler = (libraryRoot, _) =>
+        {
+            requestedRoot = libraryRoot;
+            return Task.FromResult(loadResult);
+        };
+        var viewModel = new MainShellViewModel(defaultRoot, service, appSettingsService: appSettings);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal(Path.GetFullPath(savedRoot), requestedRoot);
+        Assert.Equal(Path.GetFullPath(savedRoot), viewModel.LibraryRoot);
+        Assert.Equal(
+            [Path.GetFullPath(savedRoot), Path.GetFullPath(defaultRoot)],
+            viewModel.RecentLibraryRoots);
+    }
+
+    [Fact]
+    public async Task ChangeLibraryRootAsync_LoadsNewRootClearsRunStateAndPersistsRecentRoots()
+    {
+        var initialRoot = Path.Combine(TestRoot, "root-a");
+        var newRoot = Path.Combine(TestRoot, "root-b");
+        var oldResult = Result("OldRepo", RepositoryResultStatus.Failed);
+        var newRepository = new RepositoryDescriptor(
+            Path.Combine(newRoot, "Tools", "NewRepo"),
+            "NewRepo",
+            "Tools",
+            "https://github.com/example/NewRepo.git");
+        var loadResult = new GitPullerLibraryLoadResult(
+            newRoot,
+            new GitPullerOptions(),
+            new RepositoryInventory(newRoot, [newRepository]),
+            [],
+            ["Tools"]);
+        var service = new FakeGitPullerSyncService(loadResult);
+        var appSettings = new FakeAppSettingsService(new AppSettings(initialRoot, [initialRoot]));
+        var viewModel = new MainShellViewModel(
+            initialRoot,
+            [new CategoryNavigationItemViewModel("Plugins", Path.Combine(initialRoot, "Plugins"), 1, 1)],
+            [oldResult],
+            [RemovedRepositoryViewModel.FromRecord(RemovedRecord("RemovedOld", initialRoot), _ => true, _ => false)],
+            service,
+            appSettingsService: appSettings);
+        viewModel.SelectedResult = oldResult;
+
+        await viewModel.ChangeLibraryRootAsync(newRoot);
+
+        Assert.Equal(Path.GetFullPath(newRoot), viewModel.LibraryRoot);
+        Assert.Empty(viewModel.RepositoryResults);
+        Assert.Null(viewModel.SelectedResult);
+        Assert.Empty(viewModel.RemovedRepositories);
+        Assert.Equal(["Tools"], viewModel.Categories.Select(category => category.Name).ToArray());
+        Assert.Equal(Path.GetFullPath(newRoot), appSettings.SavedSettings?.SelectedLibraryRoot);
+        Assert.Equal(
+            [Path.GetFullPath(newRoot), Path.GetFullPath(initialRoot)],
+            appSettings.SavedSettings?.RecentLibraryRoots);
+        Assert.Equal(1, service.LoadCallCount);
+    }
+
+    [Fact]
+    public async Task ChangeLibraryRootAsync_DoesNothingWhileSyncIsRunning()
+    {
+        var initialRoot = Path.Combine(TestRoot, "busy-root");
+        var newRoot = Path.Combine(TestRoot, "ignored-root");
+        var service = new FakeGitPullerSyncService(new GitPullerLibraryLoadResult(
+            initialRoot,
+            new GitPullerOptions(),
+            new RepositoryInventory(initialRoot, []),
+            [],
+            ["Plugins"]));
+        var appSettings = new FakeAppSettingsService(new AppSettings(initialRoot, [initialRoot]));
+        var viewModel = new MainShellViewModel(initialRoot, service, appSettingsService: appSettings);
+        var releaseRun = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.RunAllAsyncHandler = async (_, _, _) =>
+        {
+            await releaseRun.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return new GitPullerRunResult { RepositoryResults = [] };
+        };
+
+        var runTask = viewModel.RunSyncAsync();
+
+        Assert.True(viewModel.IsRunning);
+        await viewModel.ChangeLibraryRootAsync(newRoot);
+
+        Assert.Equal(initialRoot, viewModel.LibraryRoot);
+        Assert.Null(appSettings.SavedSettings);
+
+        releaseRun.SetResult();
+        await runTask;
+    }
+
+    [Fact]
+    public async Task ChangeLibraryRootAsync_BlankRootReportsErrorAndDoesNotPersist()
+    {
+        var initialRoot = Path.Combine(TestRoot, "blank-root");
+        var service = new FakeGitPullerSyncService(new GitPullerLibraryLoadResult(
+            initialRoot,
+            new GitPullerOptions(),
+            new RepositoryInventory(initialRoot, []),
+            [],
+            ["Plugins"]));
+        var appSettings = new FakeAppSettingsService(new AppSettings(initialRoot, [initialRoot]));
+        var viewModel = new MainShellViewModel(initialRoot, service, appSettingsService: appSettings);
+
+        await viewModel.ChangeLibraryRootAsync("   ");
+
+        Assert.Equal(initialRoot, viewModel.LibraryRoot);
+        Assert.True(viewModel.HasRunError);
+        Assert.Contains("Library root is required", viewModel.RunErrorMessage, StringComparison.Ordinal);
+        Assert.Null(appSettings.SavedSettings);
+        Assert.Equal(0, service.LoadCallCount);
+    }
+
+    [Fact]
+    public void LibraryRootChrome_MainPageShowsRootOnlyInSidebarAndProvidesChangeActions()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+        var codeBehind = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml.cs");
+
+        Assert.Equal(1, CountOccurrences(xaml, "Text=\"Library root\""));
+        Assert.Contains("x:Name=\"LibraryRootHeader\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("ChangeLibraryRootButton_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("IsEnabled=\"{Binding CanChangeLibraryRoot}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("OpenLibraryRootButton", xaml, StringComparison.Ordinal);
+        Assert.True(xaml.IndexOf("Text=\"Last sync\"", StringComparison.Ordinal) < xaml.IndexOf("Command=\"{Binding RunSyncCommand}\"", StringComparison.Ordinal));
+        Assert.Contains("FolderPicker", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ChangeLibraryRootAsync", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AddRepositoryDialog_UsesCategoryDropdownOptionalFolderNameAndNoRootInput()
+    {
+        var codeBehind = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml.cs");
+        var methodStart = codeBehind.IndexOf("private async Task ShowAddRepositoryDialogAsync()", StringComparison.Ordinal);
+        var methodEnd = codeBehind.IndexOf("private async Task ShowChangeLibraryRootDialogAsync()", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0);
+        Assert.True(methodEnd > methodStart);
+        var method = codeBehind[methodStart..methodEnd];
+
+        Assert.DoesNotContain("Header = \"Library root\"", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("Title = \"Add repository from URL\"", method, StringComparison.Ordinal);
+        Assert.Contains("Title = \"Add repository\"", method, StringComparison.Ordinal);
+        Assert.Contains("ComboBox", method, StringComparison.Ordinal);
+        Assert.Contains("Optional", method, StringComparison.Ordinal);
+        Assert.Contains("local folder name override", method, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Current library root", method, StringComparison.Ordinal);
+        Assert.Contains("TextWrapping = TextWrapping.Wrap", method, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ChangeLibraryRootDialog_DisablesBlankSubmitAndShowsInlineErrors()
+    {
+        var codeBehind = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml.cs");
+        var methodStart = codeBehind.IndexOf("private async Task ShowChangeLibraryRootDialogAsync()", StringComparison.Ordinal);
+        var methodEnd = codeBehind.IndexOf("private async Task<string?> PickLibraryRootAsync()", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0);
+        Assert.True(methodEnd > methodStart);
+        var method = codeBehind[methodStart..methodEnd];
+
+        Assert.Contains("rootErrorBar", method, StringComparison.Ordinal);
+        Assert.Contains("dialog.IsPrimaryButtonEnabled = ViewModel.CanChangeLibraryRoot", method, StringComparison.Ordinal);
+        Assert.Contains("hasBlankRoot", method, StringComparison.Ordinal);
+        Assert.Contains("&& !hasBlankRoot", method, StringComparison.Ordinal);
+        Assert.Contains("Library root is required", method, StringComparison.Ordinal);
+        Assert.Contains("args.Cancel = true", method, StringComparison.Ordinal);
+        Assert.Contains(nameof(MainShellViewModel.RunErrorMessage), method, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RemovedRepository_CanRestoreOnlyWhenRemovedPathExistsAndOriginalPathIsFree()
     {
         var record = new RemovedRepositoryRecord
@@ -1837,6 +2046,19 @@ public sealed class MainShellViewModelTests
         return File.ReadAllText(path);
     }
 
+    private static int CountOccurrences(string text, string value)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+
+        return count;
+    }
+
     private static object FindTreeNode(MainShellViewModel viewModel, string fullCategoryName)
     {
         foreach (var rootNode in GetRequiredListProperty(viewModel, "RepositoryTreeNodes"))
@@ -2098,6 +2320,33 @@ public sealed class MainShellViewModelTests
             Interlocked.Increment(ref deleteCallCount);
             return DeleteHandler?.Invoke(libraryRoot, removedRepository, cancellationToken)
                 ?? Task.FromResult(LoadResult(new GitPullerOptions(), [], ["Plugins", "Tools"]));
+        }
+    }
+
+    private sealed class FakeAppSettingsService : IAppSettingsService
+    {
+        public FakeAppSettingsService(AppSettings settings)
+        {
+            Settings = JsonAppSettingsService.Normalize(settings);
+        }
+
+        public AppSettings Settings { get; set; }
+        public AppSettings? SavedSettings { get; private set; }
+        public int LoadCallCount { get; private set; }
+        public int SaveCallCount { get; private set; }
+
+        public Task<AppSettings> LoadAsync(CancellationToken cancellationToken)
+        {
+            LoadCallCount++;
+            return Task.FromResult(Settings);
+        }
+
+        public Task SaveAsync(AppSettings settings, CancellationToken cancellationToken)
+        {
+            SaveCallCount++;
+            SavedSettings = JsonAppSettingsService.Normalize(settings);
+            Settings = SavedSettings;
+            return Task.CompletedTask;
         }
     }
 

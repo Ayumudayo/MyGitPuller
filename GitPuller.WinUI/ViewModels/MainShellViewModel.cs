@@ -13,6 +13,7 @@ public sealed class MainShellViewModel : ObservableObject
     private readonly IGitPullerSyncService? syncService;
     private readonly IRepositoryManagementService? repositoryManagementService;
     private readonly IFileSystemLauncher? launcher;
+    private readonly IAppSettingsService? appSettingsService;
     private readonly IViewModelDispatcher dispatcher;
     private bool showCleanRepositories;
     private bool isRunning;
@@ -68,7 +69,8 @@ public sealed class MainShellViewModel : ObservableObject
         IGitPullerSyncService syncService,
         IViewModelDispatcher? dispatcher = null,
         IRepositoryManagementService? repositoryManagementService = null,
-        IFileSystemLauncher? launcher = null)
+        IFileSystemLauncher? launcher = null,
+        IAppSettingsService? appSettingsService = null)
         : this(
             libraryRoot,
             categories: [],
@@ -77,7 +79,8 @@ public sealed class MainShellViewModel : ObservableObject
             syncService,
             dispatcher,
             repositoryManagementService,
-            launcher)
+            launcher,
+            appSettingsService)
     {
     }
 
@@ -89,18 +92,21 @@ public sealed class MainShellViewModel : ObservableObject
         IGitPullerSyncService? syncService = null,
         IViewModelDispatcher? dispatcher = null,
         IRepositoryManagementService? repositoryManagementService = null,
-        IFileSystemLauncher? launcher = null)
+        IFileSystemLauncher? launcher = null,
+        IAppSettingsService? appSettingsService = null)
     {
         this.libraryRoot = string.IsNullOrWhiteSpace(libraryRoot) ? string.Empty : libraryRoot;
         this.syncService = syncService;
         this.repositoryManagementService = repositoryManagementService;
         this.launcher = launcher;
+        this.appSettingsService = appSettingsService;
         this.dispatcher = dispatcher ?? ImmediateViewModelDispatcher.Instance;
 
         Categories = new ObservableCollection<CategoryNavigationItemViewModel>(categories);
         RepositoryTreeNodes = new ObservableCollection<RepositoryTreeNodeViewModel>();
         RepositoryResults = new ObservableCollection<RepositoryResultViewModel>(repositoryResults);
         RemovedRepositories = new ObservableCollection<RemovedRepositoryViewModel>(removedRepositories);
+        RecentLibraryRoots = new ObservableCollection<string>(CreateRecentLibraryRootList(this.libraryRoot));
         allRepositoriesNavigationItem = CreateAllRepositoriesNavigationItem();
         selectedNavigationItem = allRepositoriesNavigationItem;
         selectedResult = VisibleResults.FirstOrDefault();
@@ -159,6 +165,7 @@ public sealed class MainShellViewModel : ObservableObject
     public ObservableCollection<RepositoryTreeNodeViewModel> RepositoryTreeNodes { get; }
     public ObservableCollection<RepositoryResultViewModel> RepositoryResults { get; }
     public ObservableCollection<RemovedRepositoryViewModel> RemovedRepositories { get; }
+    public ObservableCollection<string> RecentLibraryRoots { get; }
     public ICommand AddRepositoryCommand { get; }
     public ICommand CloneRepositoryCommand { get; }
     public ICommand SaveAdvancedOptionsCommand { get; }
@@ -194,6 +201,7 @@ public sealed class MainShellViewModel : ObservableObject
                 OnPropertyChanged(nameof(CanAddRepositoryFromUrl));
                 OnPropertyChanged(nameof(CanCloneRepository));
                 OnPropertyChanged(nameof(CanSaveAdvancedOptions));
+                OnPropertyChanged(nameof(CanChangeLibraryRoot));
                 RaiseCommandCanExecuteChanged();
             }
         }
@@ -480,6 +488,9 @@ public sealed class MainShellViewModel : ObservableObject
         && !IsRepositoryManagementBusy
         && repositoryManagementService is not null
         && !string.IsNullOrWhiteSpace(LibraryRoot);
+    public bool CanChangeLibraryRoot =>
+        !IsRunning
+        && syncService is not null;
 
     public string RemovedRepositoryStatusMessage => removedRepositoryStatusMessage;
     public string RemovedRepositoryErrorMessage => removedRepositoryErrorMessage;
@@ -613,6 +624,7 @@ public sealed class MainShellViewModel : ObservableObject
 
         try
         {
+            await LoadAppSettingsAsync(cancellationToken);
             var loadResult = await LoadLibraryForCurrentRootAsync(resetResults: false, cancellationToken);
             SetRunProgress(
                 0,
@@ -624,6 +636,62 @@ public sealed class MainShellViewModel : ObservableObject
         catch (OperationCanceledException)
         {
             SetRunError("Library scan was canceled.");
+        }
+        catch (Exception ex)
+        {
+            SetRunError(ex.Message);
+        }
+        finally
+        {
+            IsRunning = false;
+        }
+    }
+
+    public async Task ChangeLibraryRootAsync(string newRoot, CancellationToken cancellationToken = default)
+    {
+        if (!CanChangeLibraryRoot || syncService is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(newRoot))
+        {
+            SetRunError("Library root is required.");
+            return;
+        }
+
+        string normalizedRoot;
+        try
+        {
+            normalizedRoot = Path.GetFullPath(newRoot.Trim());
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            SetRunError(ex.Message);
+            return;
+        }
+
+        IsRunning = true;
+        ClearRunError();
+        ClearLoadedRunState();
+        LibraryRoot = normalizedRoot;
+        ClearAddRepositoryMessages();
+        SetRunProgress(0, 0, "Scanning library...");
+
+        try
+        {
+            await SaveAppSettingsAsync(normalizedRoot, cancellationToken);
+            var loadResult = await LoadLibraryForCurrentRootAsync(resetResults: true, cancellationToken);
+            SetRunProgress(
+                0,
+                loadResult.Inventory.Repositories.Count,
+                loadResult.Inventory.Repositories.Count == 0
+                    ? "No repositories found in the selected library root."
+                    : $"Ready to run {loadResult.Inventory.Repositories.Count} repositories.");
+        }
+        catch (OperationCanceledException)
+        {
+            SetRunError("Library root change was canceled.");
         }
         catch (Exception ex)
         {
@@ -959,13 +1027,15 @@ public sealed class MainShellViewModel : ObservableObject
 
     public static MainShellViewModel CreateDefault(IViewModelDispatcher? dispatcher = null)
     {
+        var appSettingsService = new JsonAppSettingsService();
         var service = new CoreGitPullerSyncService();
         return new MainShellViewModel(
             service.GetDefaultLibraryRoot(),
             service,
             dispatcher,
             new CoreRepositoryManagementService(),
-            new WinUiFileSystemLauncher());
+            new WinUiFileSystemLauncher(),
+            appSettingsService);
     }
 
     public static MainShellViewModel CreateSample()
@@ -1093,6 +1163,91 @@ public sealed class MainShellViewModel : ObservableObject
             AddRepositoryCategoryName,
             AddRepositoryUrl,
             string.IsNullOrWhiteSpace(AddRepositoryFolderName) ? null : AddRepositoryFolderName);
+    }
+
+    private async Task LoadAppSettingsAsync(CancellationToken cancellationToken)
+    {
+        if (appSettingsService is null)
+        {
+            ReplaceRecentLibraryRoots(CreateRecentLibraryRootList(LibraryRoot));
+            return;
+        }
+
+        var settings = await appSettingsService.LoadAsync(cancellationToken);
+        var normalized = JsonAppSettingsService.Normalize(settings);
+        var selectedRoot = string.IsNullOrWhiteSpace(normalized.SelectedLibraryRoot)
+            ? LibraryRoot
+            : normalized.SelectedLibraryRoot;
+
+        LibraryRoot = selectedRoot;
+        ReplaceRecentLibraryRoots(CreateRecentLibraryRootList(selectedRoot, normalized.RecentLibraryRoots));
+    }
+
+    private async Task SaveAppSettingsAsync(string selectedRoot, CancellationToken cancellationToken)
+    {
+        var recentRoots = CreateRecentLibraryRootList(selectedRoot, RecentLibraryRoots);
+        ReplaceRecentLibraryRoots(recentRoots);
+
+        if (appSettingsService is not null)
+        {
+            await appSettingsService.SaveAsync(
+                new AppSettings(selectedRoot, recentRoots),
+                cancellationToken);
+        }
+    }
+
+    private void ReplaceRecentLibraryRoots(IEnumerable<string> roots)
+    {
+        RecentLibraryRoots.Clear();
+        foreach (var root in CreateRecentLibraryRootList(roots.ToArray()))
+        {
+            RecentLibraryRoots.Add(root);
+        }
+
+        OnPropertyChanged(nameof(RecentLibraryRoots));
+    }
+
+    private static IReadOnlyList<string> CreateRecentLibraryRootList(params string?[] roots)
+    {
+        return CreateRecentLibraryRootList(roots.AsEnumerable());
+    }
+
+    private static IReadOnlyList<string> CreateRecentLibraryRootList(
+        string? selectedRoot,
+        IEnumerable<string> roots)
+    {
+        return CreateRecentLibraryRootList([selectedRoot, .. roots]);
+    }
+
+    private static IReadOnlyList<string> CreateRecentLibraryRootList(IEnumerable<string?> roots)
+    {
+        var recentRoots = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            string normalizedRoot;
+            try
+            {
+                normalizedRoot = Path.GetFullPath(root.Trim());
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                continue;
+            }
+
+            if (seen.Add(normalizedRoot))
+            {
+                recentRoots.Add(normalizedRoot);
+            }
+        }
+
+        return recentRoots;
     }
 
     private void SetAddRepositoryPreview(

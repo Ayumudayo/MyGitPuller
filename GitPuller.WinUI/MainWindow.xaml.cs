@@ -13,9 +13,12 @@ namespace GitPuller_WinUI;
 /// </summary>
 public sealed partial class MainWindow : Window
 {
+    public static MainWindow? ActiveWindow { get; private set; }
+
     public MainWindow()
     {
         InitializeComponent();
+        ActiveWindow = this;
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);

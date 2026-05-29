@@ -1,11 +1,13 @@
 using System.ComponentModel;
 using Windows.Foundation;
+using Windows.Storage.Pickers;
 using GitPuller_WinUI.Services;
 using GitPuller_WinUI.ViewModels;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using WinRT.Interop;
 
 namespace GitPuller_WinUI.Views;
 
@@ -84,6 +86,11 @@ public sealed partial class MainPage : Page
     {
         ViewModel.BeginAddRepository(ViewModel.RepositoryUrlToAdd, ViewModel.SelectedCategory?.Name);
         await ShowAddRepositoryDialogAsync();
+    }
+
+    private async void ChangeLibraryRootButton_Click(object sender, RoutedEventArgs e)
+    {
+        await ShowChangeLibraryRootDialogAsync();
     }
 
     private void AllFilterButton_Click(object sender, RoutedEventArgs e)
@@ -239,13 +246,6 @@ public sealed partial class MainPage : Page
 
     private async Task ShowAddRepositoryDialogAsync()
     {
-        var libraryRootBox = new TextBox
-        {
-            Header = "Library root",
-            IsReadOnly = true,
-            Text = ViewModel.LibraryRoot,
-            TextWrapping = TextWrapping.Wrap
-        };
         var urlBox = new TextBox
         {
             Header = "Clone URL",
@@ -253,41 +253,99 @@ public sealed partial class MainPage : Page
             Text = ViewModel.AddRepositoryUrl,
             TextWrapping = TextWrapping.Wrap
         };
-        var categoryBox = new TextBox
+
+        var categoryNames = ViewModel.Categories
+            .Select(category => category.Name)
+            .Concat(string.IsNullOrWhiteSpace(ViewModel.AddRepositoryCategoryName)
+                ? []
+                : [ViewModel.AddRepositoryCategoryName])
+            .Where(category => !string.IsNullOrWhiteSpace(category))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(category => category, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var categoryBox = new ComboBox
         {
             Header = "Category",
-            PlaceholderText = "Plugins",
-            Text = ViewModel.AddRepositoryCategoryName,
-            TextWrapping = TextWrapping.Wrap
+            ItemsSource = categoryNames,
+            PlaceholderText = "Choose category",
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
+        categoryBox.SelectedItem = categoryNames.FirstOrDefault(category =>
+            string.Equals(category, ViewModel.AddRepositoryCategoryName, StringComparison.OrdinalIgnoreCase));
+        var newCategoryBox = new TextBox
+        {
+            PlaceholderText = "New category",
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed
+        };
+        var newCategoryButton = new Button
+        {
+            Content = "+ New",
+            VerticalAlignment = VerticalAlignment.Bottom
+        };
+        Grid.SetColumn(newCategoryButton, 1);
+
+        var folderHelpIcon = new FontIcon
+        {
+            FontSize = 12,
+            Glyph = "\uE946"
+        };
+        ToolTipService.SetToolTip(
+            folderHelpIcon,
+            "Optional local folder name override. Leave it empty to derive the folder from the repository URL; it does not change the category or remote repository.");
         var folderBox = new TextBox
         {
-            Header = "Folder name",
-            PlaceholderText = "repository-folder",
+            Header = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock { Text = "Folder name" },
+                    new Border
+                    {
+                        Padding = new Thickness(6, 1, 6, 2),
+                        CornerRadius = new CornerRadius(8),
+                        BorderThickness = new Thickness(1),
+                        Child = new TextBlock
+                        {
+                            FontSize = 11,
+                            Text = "Optional"
+                        }
+                    },
+                    folderHelpIcon
+                }
+            },
+            PlaceholderText = "Leave empty to use the repository name",
             Text = ViewModel.AddRepositoryFolderName,
             TextWrapping = TextWrapping.Wrap
         };
         var previewText = new TextBlock
         {
-            TextWrapping = TextWrapping.WrapWholeWords
+            TextWrapping = TextWrapping.Wrap
         };
         var diagnosticTitle = new TextBlock
         {
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            TextWrapping = TextWrapping.WrapWholeWords
+            TextWrapping = TextWrapping.Wrap
         };
         var diagnosticExplanation = new TextBlock
         {
-            TextWrapping = TextWrapping.WrapWholeWords
+            TextWrapping = TextWrapping.Wrap
         };
         var diagnosticEvidence = new TextBlock
         {
-            TextWrapping = TextWrapping.WrapWholeWords
+            TextWrapping = TextWrapping.Wrap
         };
         var errorBar = new InfoBar
         {
             Severity = InfoBarSeverity.Error,
             Title = "Clone failed"
+        };
+        var currentRootText = new TextBlock
+        {
+            Text = ViewModel.LibraryRoot,
+            TextWrapping = TextWrapping.Wrap
         };
 
         var content = new ScrollViewer
@@ -300,9 +358,22 @@ public sealed partial class MainPage : Page
                 Spacing = 10,
                 Children =
                 {
-                    libraryRootBox,
-                    categoryBox,
                     urlBox,
+                    new Grid
+                    {
+                        ColumnSpacing = 8,
+                        ColumnDefinitions =
+                        {
+                            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                            new ColumnDefinition { Width = GridLength.Auto }
+                        },
+                        Children =
+                        {
+                            categoryBox,
+                            newCategoryButton
+                        }
+                    },
+                    newCategoryBox,
                     folderBox,
                     new TextBlock
                     {
@@ -310,6 +381,12 @@ public sealed partial class MainPage : Page
                         Text = "Target path preview"
                     },
                     previewText,
+                    new TextBlock
+                    {
+                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                        Text = "Current library root"
+                    },
+                    currentRootText,
                     diagnosticTitle,
                     diagnosticExplanation,
                     diagnosticEvidence,
@@ -321,7 +398,7 @@ public sealed partial class MainPage : Page
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = "Add repository from URL",
+            Title = "Add repository",
             PrimaryButtonText = "Clone",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
@@ -354,7 +431,28 @@ public sealed partial class MainPage : Page
         };
 
         urlBox.TextChanged += (_, _) => ViewModel.AddRepositoryUrl = urlBox.Text;
-        categoryBox.TextChanged += (_, _) => ViewModel.AddRepositoryCategoryName = categoryBox.Text;
+        categoryBox.SelectionChanged += (_, _) =>
+        {
+            if (categoryBox.SelectedItem is string selectedCategory)
+            {
+                ViewModel.AddRepositoryCategoryName = selectedCategory;
+                newCategoryBox.Visibility = Visibility.Collapsed;
+            }
+        };
+        newCategoryButton.Click += (_, _) =>
+        {
+            categoryBox.SelectedItem = null;
+            newCategoryBox.Visibility = Visibility.Visible;
+            newCategoryBox.Focus(FocusState.Programmatic);
+            ViewModel.AddRepositoryCategoryName = newCategoryBox.Text;
+        };
+        newCategoryBox.TextChanged += (_, _) =>
+        {
+            if (newCategoryBox.Visibility == Visibility.Visible)
+            {
+                ViewModel.AddRepositoryCategoryName = newCategoryBox.Text;
+            }
+        };
         folderBox.TextChanged += (_, _) => ViewModel.AddRepositoryFolderName = folderBox.Text;
         dialog.PrimaryButtonClick += async (_, args) =>
         {
@@ -381,6 +479,150 @@ public sealed partial class MainPage : Page
         {
             ViewModel.PropertyChanged -= propertyChanged;
         }
+    }
+
+    private async Task ShowChangeLibraryRootDialogAsync()
+    {
+        var rootBox = new TextBox
+        {
+            Header = "Library root",
+            Text = ViewModel.LibraryRoot,
+            TextWrapping = TextWrapping.Wrap
+        };
+        var recentRoots = ViewModel.RecentLibraryRoots.ToArray();
+        var recentRootBox = new ComboBox
+        {
+            Header = "Recent roots",
+            ItemsSource = recentRoots,
+            PlaceholderText = "Select a recent library root",
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        recentRootBox.SelectedItem = recentRoots.FirstOrDefault(root =>
+            string.Equals(root, ViewModel.LibraryRoot, StringComparison.OrdinalIgnoreCase));
+        var browseButton = new Button
+        {
+            Content = "Browse"
+        };
+        var rootErrorBar = new InfoBar
+        {
+            Severity = InfoBarSeverity.Error,
+            Title = "Library root error",
+            IsOpen = false
+        };
+        browseButton.Click += async (_, _) =>
+        {
+            var selectedPath = await PickLibraryRootAsync();
+            if (!string.IsNullOrWhiteSpace(selectedPath))
+            {
+                rootBox.Text = selectedPath;
+            }
+        };
+        recentRootBox.SelectionChanged += (_, _) =>
+        {
+            if (recentRootBox.SelectedItem is string selectedRoot)
+            {
+                rootBox.Text = selectedRoot;
+            }
+        };
+
+        var content = new StackPanel
+        {
+            Spacing = 10,
+            Children =
+            {
+                recentRootBox,
+                rootBox,
+                rootErrorBar,
+                browseButton
+            }
+        };
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Change library root",
+            PrimaryButtonText = "Use root",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            Content = content
+        };
+
+        void UpdateRootDialogState()
+        {
+            var hasBlankRoot = string.IsNullOrWhiteSpace(rootBox.Text);
+            dialog.IsPrimaryButtonEnabled = ViewModel.CanChangeLibraryRoot
+                && !hasBlankRoot;
+            rootErrorBar.IsOpen = hasBlankRoot || ViewModel.HasRunError;
+            rootErrorBar.Message = hasBlankRoot
+                ? "Library root is required."
+                : ViewModel.RunErrorMessage;
+        }
+
+        rootBox.TextChanged += (_, _) =>
+        {
+            UpdateRootDialogState();
+        };
+
+        PropertyChangedEventHandler propertyChanged = (_, args) =>
+        {
+            if (args.PropertyName is nameof(MainShellViewModel.CanChangeLibraryRoot)
+                or nameof(MainShellViewModel.HasRunError)
+                or nameof(MainShellViewModel.RunErrorMessage))
+            {
+                UpdateRootDialogState();
+            }
+        };
+
+        dialog.PrimaryButtonClick += async (_, args) =>
+        {
+            var deferral = args.GetDeferral();
+            try
+            {
+                if (string.IsNullOrWhiteSpace(rootBox.Text))
+                {
+                    rootErrorBar.IsOpen = true;
+                    rootErrorBar.Message = "Library root is required.";
+                    args.Cancel = true;
+                    UpdateRootDialogState();
+                    return;
+                }
+
+                await ViewModel.ChangeLibraryRootAsync(rootBox.Text);
+                args.Cancel = ViewModel.HasRunError;
+                UpdateRootDialogState();
+            }
+            finally
+            {
+                deferral.Complete();
+            }
+        };
+
+        ViewModel.PropertyChanged += propertyChanged;
+        try
+        {
+            UpdateRootDialogState();
+            await dialog.ShowAsync();
+        }
+        finally
+        {
+            ViewModel.PropertyChanged -= propertyChanged;
+        }
+    }
+
+    private async Task<string?> PickLibraryRootAsync()
+    {
+        var picker = new FolderPicker
+        {
+            SuggestedStartLocation = PickerLocationId.ComputerFolder
+        };
+        picker.FileTypeFilter.Add("*");
+
+        if (MainWindow.ActiveWindow is not null)
+        {
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(MainWindow.ActiveWindow));
+        }
+
+        var folder = await picker.PickSingleFolderAsync();
+        return folder?.Path;
     }
 
     private async void AdvancedOptionsButton_Click(object sender, RoutedEventArgs e)

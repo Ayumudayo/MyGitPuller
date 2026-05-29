@@ -177,16 +177,43 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <Grid Padding="18,16,18,8" RowSpacing="5">
+                <Grid
+                    x:Name="LibraryRootHeader"
+                    Padding="18,16,18,8"
+                    ColumnSpacing="6"
+                    RowSpacing="5">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
                     <TextBlock
                         Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
                         Text="Library root" />
+                    <Button
+                        x:Name="ChangeLibraryRootButton"
+                        Grid.Column="1"
+                        Click="ChangeLibraryRootButton_Click"
+                        IsEnabled="{Binding CanChangeLibraryRoot}"
+                        Style="{StaticResource GitPullerIconButtonStyle}"
+                        ToolTipService.ToolTip="Change library root">
+                        <FontIcon FontSize="12" Glyph="&#xE8B7;" />
+                    </Button>
+                    <Button
+                        x:Name="OpenLibraryRootButton"
+                        Grid.Column="2"
+                        Command="{Binding OpenLibraryFolderCommand}"
+                        Style="{StaticResource GitPullerIconButtonStyle}"
+                        ToolTipService.ToolTip="Open library root">
+                        <FontIcon FontSize="12" Glyph="&#xE838;" />
+                    </Button>
                     <TextBlock
                         Grid.Row="1"
+                        Grid.ColumnSpan="3"
                         FontSize="13"
                         Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
                         Style="{StaticResource GitPullerWrappingTextBlockStyle}"
@@ -272,24 +299,11 @@
                 BorderThickness="0,0,0,1">
                 <Grid ColumnSpacing="24">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="2*" />
-                        <ColumnDefinition Width="1.2*" />
+                        <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <StackPanel Spacing="5">
-                        <TextBlock
-                            Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
-                            Text="Library root" />
-                        <TextBlock
-                            FontSize="14"
-                            Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
-                            Text="{Binding LibraryRoot}"
-                            TextTrimming="CharacterEllipsis"
-                            TextWrapping="NoWrap" />
-                    </StackPanel>
-
-                    <Grid Grid.Column="1" RowSpacing="5">
+                    <Grid RowSpacing="5">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -321,7 +335,7 @@
                     </Grid>
 
                     <StackPanel
-                        Grid.Column="2"
+                        Grid.Column="1"
                         Orientation="Horizontal"
                         Spacing="8"
                         VerticalAlignment="Center">
