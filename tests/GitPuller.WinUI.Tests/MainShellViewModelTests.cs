@@ -39,15 +39,41 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
-    public void VisibleResults_HidesCleanRowsByDefault()
+    public void VisibleResults_AllFilterIncludesCleanRowsByDefault()
     {
         var viewModel = CreateViewModel(
             Result("clean", RepositoryResultStatus.Clean),
             Result("updated", RepositoryResultStatus.Updated));
 
-        Assert.False(viewModel.ShowCleanRepositories);
-        Assert.DoesNotContain(viewModel.VisibleResults, result => result.Status == RepositoryResultStatus.Clean);
+        Assert.Equal(RepositoryResultFilter.All, viewModel.SelectedResultFilter);
         Assert.Contains(viewModel.VisibleResults, result => result.Status == RepositoryResultStatus.Updated);
+        Assert.Contains(viewModel.VisibleResults, result => result.Status == RepositoryResultStatus.Clean);
+    }
+
+    [Fact]
+    public void VisibleResults_FiltersBySelectedStatusFilter()
+    {
+        var viewModel = CreateViewModel(
+            Result("failed", RepositoryResultStatus.Failed),
+            Result("warning", RepositoryResultStatus.Warning),
+            Result("updated", RepositoryResultStatus.Updated),
+            Result("clean", RepositoryResultStatus.Clean));
+
+        viewModel.SelectedResultFilter = RepositoryResultFilter.Warning;
+
+        Assert.Equal(["warning"], viewModel.VisibleResults.Select(result => result.Name).ToArray());
+    }
+
+    [Fact]
+    public void VisibleResults_FiltersBySearchTextAcrossNamePathAndCategory()
+    {
+        var viewModel = CreateViewModel(
+            Result("BossMod", RepositoryResultStatus.Failed, category: "Dalamud Plugins/CombatReborn"),
+            Result("ChronoCore", RepositoryResultStatus.Updated, category: "FF14_CS/ProjectChronofoil"));
+
+        viewModel.RepositorySearchText = "chrono";
+
+        Assert.Equal(["ChronoCore"], viewModel.VisibleResults.Select(result => result.Name).ToArray());
     }
 
     [Fact]
@@ -130,6 +156,41 @@ public sealed class MainShellViewModelTests
 
         Assert.DoesNotContain("ResourceKeyToBrushConverter", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("xmlns:converters", xaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StatusVisual_AppResourcesUseAcceptedPastelDarkPalette()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Resources", "AppResources.xaml");
+
+        Assert.Contains("Color=\"#FF9AA3\"", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Color=\"#F6CF79\"", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Color=\"#A7EC98\"", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Color=\"#A9CFF7\"", xaml, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AcceptedMockupShell_MainPageUsesCustomMockupRegions()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+
+        Assert.Contains("x:Name=\"MockupShellRoot\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"RepositorySidebar\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"SyncBar\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"StatusFilterBar\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"ResultTable\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"DetailsPane\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"FooterStatusBar\"", xaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AcceptedMockupShell_DoesNotUseNavigationViewAsPrimaryShell()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+
+        Assert.DoesNotContain("<NavigationView", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("PaneCustomContent", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddRepositoryGrid", xaml, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -273,9 +334,43 @@ public sealed class MainShellViewModelTests
         Assert.Equal(2, GetRequiredPropertyValue<int>(ff14Node, "RepositoryCount"));
         Assert.Equal(1, GetRequiredPropertyValue<int>(ff14Node, "AttentionCount"));
         var ff14Children = GetRequiredListProperty(ff14Node, "Children");
-        var chronofoilNode = Assert.Single(ff14Children);
+        var chronofoilNode = Assert.Single(ff14Children, child =>
+            GetRequiredPropertyValue<bool>(child, "IsFolder"));
         Assert.Equal("ProjectChronofoil", GetRequiredPropertyValue<string>(chronofoilNode, "Name"));
         Assert.Equal("FF14_CS/ProjectChronofoil", GetRequiredPropertyValue<string>(chronofoilNode, "FullCategoryName"));
+
+        var ff14RepositoryNode = Assert.Single(ff14Children, child =>
+            GetRequiredPropertyValue<bool>(child, "IsRepository"));
+        Assert.Equal("FF14_CS", GetRequiredPropertyValue<string>(ff14RepositoryNode, "Name"));
+        Assert.Equal(Path.Combine(TestRoot, "FF14_CS", "FF14_CS"), GetRequiredPropertyValue<string>(ff14RepositoryNode, "FullPath"));
+    }
+
+    [Fact]
+    public async Task RepositoryTree_AddsRepositoryLeavesBelowCategoryFolders()
+    {
+        var viewModel = await CreateHierarchicalTreeViewModelAsync();
+
+        var combatNode = FindTreeNode(viewModel, "Dalamud Plugins/CombatReborn");
+        var children = GetRequiredListProperty(combatNode, "Children");
+
+        Assert.Contains(children, child =>
+            GetRequiredPropertyValue<bool>(child, "IsRepository")
+            && GetRequiredPropertyValue<string>(child, "Name") == "CombatReborn");
+    }
+
+    [Fact]
+    public async Task SelectRepositoryTreeNode_SelectsMatchingResultWithoutChangingFolderFilter()
+    {
+        var viewModel = await CreateHierarchicalTreeViewModelAsync();
+        var folderNode = FindTreeNode(viewModel, "Dalamud Plugins");
+        SetRequiredPropertyValue(viewModel, "SelectedFolderNode", folderNode);
+        var repoNode = FindRepositoryTreeNode(viewModel, "CombatReborn");
+
+        viewModel.SelectRepositoryTreeNode(repoNode);
+
+        Assert.Equal("Dalamud Plugins", viewModel.SelectedCategoryName);
+        Assert.Equal(["CombatReborn", "Punish"], viewModel.VisibleResults.Select(result => result.Name).ToArray());
+        Assert.Equal("CombatReborn", viewModel.SelectedResultName);
     }
 
     [Fact]
@@ -1674,7 +1769,8 @@ public sealed class MainShellViewModelTests
 
     private static object? FindTreeNodeRecursive(object node, string fullCategoryName)
     {
-        if (string.Equals(
+        if (GetRequiredPropertyValue<bool>(node, "IsFolder")
+            && string.Equals(
             GetRequiredPropertyValue<string>(node, "FullCategoryName"),
             fullCategoryName,
             StringComparison.OrdinalIgnoreCase))
@@ -1685,6 +1781,44 @@ public sealed class MainShellViewModelTests
         foreach (var child in GetRequiredListProperty(node, "Children"))
         {
             var match = FindTreeNodeRecursive(child, fullCategoryName);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static RepositoryTreeNodeViewModel FindRepositoryTreeNode(
+        MainShellViewModel viewModel,
+        string repositoryName)
+    {
+        foreach (var rootNode in viewModel.RepositoryTreeNodes)
+        {
+            var match = FindRepositoryTreeNodeRecursive(rootNode, repositoryName);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        throw new Xunit.Sdk.XunitException($"Repository tree node '{repositoryName}' was not found.");
+    }
+
+    private static RepositoryTreeNodeViewModel? FindRepositoryTreeNodeRecursive(
+        RepositoryTreeNodeViewModel node,
+        string repositoryName)
+    {
+        if (node.IsRepository
+            && string.Equals(node.Name, repositoryName, StringComparison.OrdinalIgnoreCase))
+        {
+            return node;
+        }
+
+        foreach (var child in node.Children)
+        {
+            var match = FindRepositoryTreeNodeRecursive(child, repositoryName);
             if (match is not null)
             {
                 return match;

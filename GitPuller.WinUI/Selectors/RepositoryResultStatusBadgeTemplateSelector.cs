@@ -10,9 +10,16 @@ public sealed class RepositoryResultStatusBadgeTemplateSelector : DataTemplateSe
     public DataTemplate? WarningTemplate { get; set; }
     public DataTemplate? UpdatedTemplate { get; set; }
     public DataTemplate? CleanTemplate { get; set; }
+    public DataTemplate? EmptyTemplate { get; set; }
 
     protected override DataTemplate SelectTemplateCore(object item)
     {
+        if (item is null)
+        {
+            return EmptyTemplate
+                ?? throw new InvalidOperationException("An empty status badge template must be configured.");
+        }
+
         var template = item is RepositoryResultViewModel result
             ? result.Status switch
             {

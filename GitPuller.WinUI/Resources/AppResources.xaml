@@ -5,26 +5,48 @@
 
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Light">
-            <SolidColorBrush x:Key="GitPullerFailedBrush" Color="#D13438" />
-            <SolidColorBrush x:Key="GitPullerWarningBrush" Color="#B76B00" />
-            <SolidColorBrush x:Key="GitPullerUpdatedBrush" Color="#0B7A43" />
-            <SolidColorBrush x:Key="GitPullerCleanBrush" Color="#536B82" />
+            <SolidColorBrush x:Key="GitPullerFailedBrush" Color="#A4262C" />
+            <SolidColorBrush x:Key="GitPullerWarningBrush" Color="#986F0B" />
+            <SolidColorBrush x:Key="GitPullerUpdatedBrush" Color="#107C10" />
+            <SolidColorBrush x:Key="GitPullerCleanBrush" Color="#0F6CBD" />
             <SolidColorBrush x:Key="GitPullerFolderAccentBrush" Color="#0F6CBD" />
-            <SolidColorBrush x:Key="GitPullerSurfaceBrush" Color="#F3F5F8" />
-            <SolidColorBrush x:Key="GitPullerSurfaceAltBrush" Color="#E6EBF2" />
-            <SolidColorBrush x:Key="GitPullerSubtlePanelBrush" Color="#F3F5F8" />
-            <SolidColorBrush x:Key="GitPullerSubtleBorderBrush" Color="#220F172A" />
+            <SolidColorBrush x:Key="GitPullerAppBackgroundBrush" Color="#F6F8FB" />
+            <SolidColorBrush x:Key="GitPullerSidebarBrush" Color="#EDF2F7" />
+            <SolidColorBrush x:Key="GitPullerSidebarAltBrush" Color="#E5ECF5" />
+            <SolidColorBrush x:Key="GitPullerPanelBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="GitPullerPanelAltBrush" Color="#F3F7FB" />
+            <SolidColorBrush x:Key="GitPullerBorderBrush" Color="#C8D4E2" />
+            <SolidColorBrush x:Key="GitPullerSelectedRowBrush" Color="#D7E9FF" />
+            <SolidColorBrush x:Key="GitPullerSubtleTextBrush" Color="#566579" />
+            <SolidColorBrush x:Key="GitPullerMutedTextBrush" Color="#69788D" />
+            <SolidColorBrush x:Key="GitPullerPrimaryTextBrush" Color="#172033" />
+            <SolidColorBrush x:Key="GitPullerAccentBrush" Color="#0F6CBD" />
+            <SolidColorBrush x:Key="GitPullerSurfaceBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="GitPullerSurfaceAltBrush" Color="#F3F7FB" />
+            <SolidColorBrush x:Key="GitPullerSubtlePanelBrush" Color="#F3F7FB" />
+            <SolidColorBrush x:Key="GitPullerSubtleBorderBrush" Color="#C8D4E2" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
-            <SolidColorBrush x:Key="GitPullerFailedBrush" Color="#FF5A5F" />
-            <SolidColorBrush x:Key="GitPullerWarningBrush" Color="#F5A524" />
-            <SolidColorBrush x:Key="GitPullerUpdatedBrush" Color="#3DDC97" />
-            <SolidColorBrush x:Key="GitPullerCleanBrush" Color="#8AA0B5" />
-            <SolidColorBrush x:Key="GitPullerFolderAccentBrush" Color="#5EA1FF" />
-            <SolidColorBrush x:Key="GitPullerSurfaceBrush" Color="#15181E" />
-            <SolidColorBrush x:Key="GitPullerSurfaceAltBrush" Color="#1E2430" />
-            <SolidColorBrush x:Key="GitPullerSubtlePanelBrush" Color="#15181E" />
-            <SolidColorBrush x:Key="GitPullerSubtleBorderBrush" Color="#334D6A82" />
+            <SolidColorBrush x:Key="GitPullerFailedBrush" Color="#FF9AA3" />
+            <SolidColorBrush x:Key="GitPullerWarningBrush" Color="#F6CF79" />
+            <SolidColorBrush x:Key="GitPullerUpdatedBrush" Color="#A7EC98" />
+            <SolidColorBrush x:Key="GitPullerCleanBrush" Color="#A9CFF7" />
+            <SolidColorBrush x:Key="GitPullerFolderAccentBrush" Color="#5DA7FF" />
+            <SolidColorBrush x:Key="GitPullerAppBackgroundBrush" Color="#0B1016" />
+            <SolidColorBrush x:Key="GitPullerSidebarBrush" Color="#111922" />
+            <SolidColorBrush x:Key="GitPullerSidebarAltBrush" Color="#0E151D" />
+            <SolidColorBrush x:Key="GitPullerPanelBrush" Color="#111922" />
+            <SolidColorBrush x:Key="GitPullerPanelAltBrush" Color="#151F2A" />
+            <SolidColorBrush x:Key="GitPullerBorderBrush" Color="#263443" />
+            <SolidColorBrush x:Key="GitPullerSelectedRowBrush" Color="#173F66" />
+            <SolidColorBrush x:Key="GitPullerSubtleTextBrush" Color="#9AA8B8" />
+            <SolidColorBrush x:Key="GitPullerMutedTextBrush" Color="#748294" />
+            <SolidColorBrush x:Key="GitPullerPrimaryTextBrush" Color="#F2F6FB" />
+            <SolidColorBrush x:Key="GitPullerAccentBrush" Color="#5DA7FF" />
+            <SolidColorBrush x:Key="GitPullerSurfaceBrush" Color="#111922" />
+            <SolidColorBrush x:Key="GitPullerSurfaceAltBrush" Color="#151F2A" />
+            <SolidColorBrush x:Key="GitPullerSubtlePanelBrush" Color="#111922" />
+            <SolidColorBrush x:Key="GitPullerSubtleBorderBrush" Color="#263443" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="GitPullerFailedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
@@ -32,6 +54,17 @@
             <SolidColorBrush x:Key="GitPullerUpdatedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="GitPullerCleanBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
             <SolidColorBrush x:Key="GitPullerFolderAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="GitPullerAppBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GitPullerSidebarBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GitPullerSidebarAltBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GitPullerPanelBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GitPullerPanelAltBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GitPullerBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="GitPullerSelectedRowBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="GitPullerSubtleTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="GitPullerMutedTextBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+            <SolidColorBrush x:Key="GitPullerPrimaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="GitPullerAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="GitPullerSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GitPullerSurfaceAltBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GitPullerSubtlePanelBrush" Color="{ThemeResource SystemColorWindowColor}" />
@@ -39,11 +72,17 @@
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 
+    <x:Double x:Key="GitPullerSidebarWidth">390</x:Double>
+    <x:Double x:Key="GitPullerRowSpacing">8</x:Double>
+    <x:Double x:Key="GitPullerColumnSpacing">16</x:Double>
+    <Thickness x:Key="GitPullerShellPadding">0</Thickness>
+    <Thickness x:Key="GitPullerSyncBarPadding">20,10</Thickness>
+    <Thickness x:Key="GitPullerDetailsPadding">18,12</Thickness>
     <Thickness x:Key="GitPullerPagePadding">16</Thickness>
     <Thickness x:Key="GitPullerCompactPadding">12</Thickness>
     <Thickness x:Key="GitPullerTightPadding">8</Thickness>
-    <x:Double x:Key="GitPullerRowSpacing">8</x:Double>
-    <x:Double x:Key="GitPullerColumnSpacing">16</x:Double>
+    <CornerRadius x:Key="GitPullerPanelCornerRadius">8</CornerRadius>
+    <CornerRadius x:Key="GitPullerSmallCornerRadius">6</CornerRadius>
 
     <Style x:Key="GitPullerWrappingTextBlockStyle" TargetType="TextBlock">
         <Setter Property="TextWrapping" Value="WrapWholeWords" />
@@ -51,8 +90,61 @@
         <Setter Property="LineStackingStrategy" Value="MaxHeight" />
     </Style>
 
+    <Style x:Key="GitPullerMicroLabelTextBlockStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{ThemeResource GitPullerMutedTextBrush}" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+
+    <Style x:Key="GitPullerPanelTitleTextBlockStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{ThemeResource GitPullerPrimaryTextBrush}" />
+        <Setter Property="TextWrapping" Value="WrapWholeWords" />
+    </Style>
+
+    <Style x:Key="GitPullerChromeButtonStyle" TargetType="Button">
+        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="Background" Value="{ThemeResource GitPullerPanelAltBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource GitPullerBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource GitPullerSmallCornerRadius}" />
+        <Setter Property="Foreground" Value="{ThemeResource GitPullerPrimaryTextBrush}" />
+    </Style>
+
+    <Style
+        x:Key="GitPullerPrimaryButtonStyle"
+        BasedOn="{StaticResource GitPullerChromeButtonStyle}"
+        TargetType="Button">
+        <Setter Property="Background" Value="{ThemeResource GitPullerAccentBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource GitPullerAccentBrush}" />
+        <Setter Property="Foreground" Value="#06111F" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style
+        x:Key="GitPullerStatusFilterButtonStyle"
+        BasedOn="{StaticResource GitPullerChromeButtonStyle}"
+        TargetType="Button">
+        <Setter Property="MinHeight" Value="30" />
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+
     <Style x:Key="GitPullerRepositoryListViewItemStyle" TargetType="ListViewItem">
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-        <Setter Property="MinHeight" Value="112" />
+        <Setter Property="MinHeight" Value="46" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+    <Style x:Key="GitPullerEvidenceTextBlockStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Consolas" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="TextWrapping" Value="WrapWholeWords" />
+        <Setter Property="Foreground" Value="{ThemeResource GitPullerSubtleTextBrush}" />
     </Style>
 </ResourceDictionary>

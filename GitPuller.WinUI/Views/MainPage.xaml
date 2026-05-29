@@ -14,23 +14,21 @@
         <DataTemplate x:Key="FailedStatusBadgeTemplate" x:DataType="vm:RepositoryResultViewModel">
             <Border
                 Padding="8,4"
-                Background="{ThemeResource GitPullerSurfaceAltBrush}"
+                Background="{ThemeResource GitPullerPanelAltBrush}"
                 BorderBrush="{ThemeResource GitPullerFailedBrush}"
                 BorderThickness="1"
                 CornerRadius="6"
                 HorizontalAlignment="Left"
-                VerticalAlignment="Top">
-                <StackPanel
-                    Orientation="Horizontal"
-                    Spacing="6">
+                VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon
                         FontSize="12"
                         Foreground="{ThemeResource GitPullerFailedBrush}"
                         Glyph="{x:Bind StatusIcon}" />
                     <TextBlock
+                        FontSize="12"
                         FontWeight="SemiBold"
                         Foreground="{ThemeResource GitPullerFailedBrush}"
-                        Style="{StaticResource CaptionTextBlockStyle}"
                         Text="{x:Bind StatusText}" />
                 </StackPanel>
             </Border>
@@ -39,23 +37,21 @@
         <DataTemplate x:Key="WarningStatusBadgeTemplate" x:DataType="vm:RepositoryResultViewModel">
             <Border
                 Padding="8,4"
-                Background="{ThemeResource GitPullerSurfaceAltBrush}"
+                Background="{ThemeResource GitPullerPanelAltBrush}"
                 BorderBrush="{ThemeResource GitPullerWarningBrush}"
                 BorderThickness="1"
                 CornerRadius="6"
                 HorizontalAlignment="Left"
-                VerticalAlignment="Top">
-                <StackPanel
-                    Orientation="Horizontal"
-                    Spacing="6">
+                VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon
                         FontSize="12"
                         Foreground="{ThemeResource GitPullerWarningBrush}"
                         Glyph="{x:Bind StatusIcon}" />
                     <TextBlock
+                        FontSize="12"
                         FontWeight="SemiBold"
                         Foreground="{ThemeResource GitPullerWarningBrush}"
-                        Style="{StaticResource CaptionTextBlockStyle}"
                         Text="{x:Bind StatusText}" />
                 </StackPanel>
             </Border>
@@ -64,23 +60,21 @@
         <DataTemplate x:Key="UpdatedStatusBadgeTemplate" x:DataType="vm:RepositoryResultViewModel">
             <Border
                 Padding="8,4"
-                Background="{ThemeResource GitPullerSurfaceAltBrush}"
+                Background="{ThemeResource GitPullerPanelAltBrush}"
                 BorderBrush="{ThemeResource GitPullerUpdatedBrush}"
                 BorderThickness="1"
                 CornerRadius="6"
                 HorizontalAlignment="Left"
-                VerticalAlignment="Top">
-                <StackPanel
-                    Orientation="Horizontal"
-                    Spacing="6">
+                VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon
                         FontSize="12"
                         Foreground="{ThemeResource GitPullerUpdatedBrush}"
                         Glyph="{x:Bind StatusIcon}" />
                     <TextBlock
+                        FontSize="12"
                         FontWeight="SemiBold"
                         Foreground="{ThemeResource GitPullerUpdatedBrush}"
-                        Style="{StaticResource CaptionTextBlockStyle}"
                         Text="{x:Bind StatusText}" />
                 </StackPanel>
             </Border>
@@ -89,770 +83,648 @@
         <DataTemplate x:Key="CleanStatusBadgeTemplate" x:DataType="vm:RepositoryResultViewModel">
             <Border
                 Padding="8,4"
-                Background="{ThemeResource GitPullerSurfaceAltBrush}"
+                Background="{ThemeResource GitPullerPanelAltBrush}"
                 BorderBrush="{ThemeResource GitPullerCleanBrush}"
                 BorderThickness="1"
                 CornerRadius="6"
                 HorizontalAlignment="Left"
-                VerticalAlignment="Top">
-                <StackPanel
-                    Orientation="Horizontal"
-                    Spacing="6">
+                VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon
                         FontSize="12"
                         Foreground="{ThemeResource GitPullerCleanBrush}"
                         Glyph="{x:Bind StatusIcon}" />
                     <TextBlock
+                        FontSize="12"
                         FontWeight="SemiBold"
                         Foreground="{ThemeResource GitPullerCleanBrush}"
-                        Style="{StaticResource CaptionTextBlockStyle}"
                         Text="{x:Bind StatusText}" />
                 </StackPanel>
             </Border>
         </DataTemplate>
 
+        <DataTemplate x:Key="EmptyStatusBadgeTemplate">
+            <Grid Width="0" Height="0" />
+        </DataTemplate>
+
         <selectors:RepositoryResultStatusBadgeTemplateSelector
             x:Key="RepositoryResultStatusBadgeTemplateSelector"
             CleanTemplate="{StaticResource CleanStatusBadgeTemplate}"
+            EmptyTemplate="{StaticResource EmptyStatusBadgeTemplate}"
             FailedTemplate="{StaticResource FailedStatusBadgeTemplate}"
             UpdatedTemplate="{StaticResource UpdatedStatusBadgeTemplate}"
             WarningTemplate="{StaticResource WarningStatusBadgeTemplate}" />
     </Page.Resources>
 
-    <Grid>
-        <VisualStateManager.VisualStateGroups>
-            <VisualStateGroup x:Name="LayoutStates">
-                <VisualState x:Name="WideState">
-                    <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="1100" />
-                    </VisualState.StateTriggers>
-                    <VisualState.Setters>
-                        <Setter Target="CategoryNavigation.PaneDisplayMode" Value="Left" />
-                        <Setter Target="CategoryNavigation.IsPaneOpen" Value="True" />
-                        <Setter Target="ContentHost.Padding" Value="{StaticResource GitPullerPagePadding}" />
-                        <Setter Target="ResultsColumn.Width" Value="2*" />
-                        <Setter Target="DetailsColumn.Width" Value="*" />
-                        <Setter Target="DetailsRow.Height" Value="0" />
-                        <Setter Target="DetailsPane.(Grid.Row)" Value="0" />
-                        <Setter Target="DetailsPane.(Grid.Column)" Value="1" />
-                        <Setter Target="DetailsPane.Margin" Value="16,0,0,0" />
-                        <Setter Target="AddCategoryColumn.Width" Value="220" />
-                        <Setter Target="AddUrlColumn.Width" Value="*" />
-                        <Setter Target="AddButtonColumn.Width" Value="Auto" />
-                        <Setter Target="AddUrlRow.Height" Value="0" />
-                        <Setter Target="AddButtonRow.Height" Value="0" />
-                        <Setter Target="AddCategoryBox.(Grid.Row)" Value="0" />
-                        <Setter Target="AddCategoryBox.(Grid.Column)" Value="0" />
-                        <Setter Target="RepositoryUrlBox.(Grid.Row)" Value="0" />
-                        <Setter Target="RepositoryUrlBox.(Grid.Column)" Value="1" />
-                        <Setter Target="AddRepositoryButton.(Grid.Row)" Value="0" />
-                        <Setter Target="AddRepositoryButton.(Grid.Column)" Value="2" />
-                        <Setter Target="AddRepositoryButton.Margin" Value="0,28,0,0" />
-                    </VisualState.Setters>
-                </VisualState>
+    <Grid
+        x:Name="MockupShellRoot"
+        Padding="{StaticResource GitPullerShellPadding}"
+        Background="{ThemeResource GitPullerAppBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="36" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="390" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
-                <VisualState x:Name="MediumState">
-                    <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="720" />
-                    </VisualState.StateTriggers>
-                    <VisualState.Setters>
-                        <Setter Target="CategoryNavigation.PaneDisplayMode" Value="LeftCompact" />
-                        <Setter Target="CategoryNavigation.IsPaneOpen" Value="False" />
-                        <Setter Target="ContentHost.Padding" Value="{StaticResource GitPullerPagePadding}" />
-                        <Setter Target="ResultsColumn.Width" Value="*" />
-                        <Setter Target="DetailsColumn.Width" Value="0" />
-                        <Setter Target="DetailsRow.Height" Value="Auto" />
-                        <Setter Target="DetailsPane.(Grid.Row)" Value="1" />
-                        <Setter Target="DetailsPane.(Grid.Column)" Value="0" />
-                        <Setter Target="DetailsPane.Margin" Value="0,16,0,0" />
-                        <Setter Target="AddCategoryColumn.Width" Value="220" />
-                        <Setter Target="AddUrlColumn.Width" Value="*" />
-                        <Setter Target="AddButtonColumn.Width" Value="Auto" />
-                        <Setter Target="AddUrlRow.Height" Value="0" />
-                        <Setter Target="AddButtonRow.Height" Value="0" />
-                        <Setter Target="AddCategoryBox.(Grid.Row)" Value="0" />
-                        <Setter Target="AddCategoryBox.(Grid.Column)" Value="0" />
-                        <Setter Target="RepositoryUrlBox.(Grid.Row)" Value="0" />
-                        <Setter Target="RepositoryUrlBox.(Grid.Column)" Value="1" />
-                        <Setter Target="AddRepositoryButton.(Grid.Row)" Value="0" />
-                        <Setter Target="AddRepositoryButton.(Grid.Column)" Value="2" />
-                        <Setter Target="AddRepositoryButton.Margin" Value="0,28,0,0" />
-                    </VisualState.Setters>
-                </VisualState>
+        <Border
+            x:Name="RepositorySidebar"
+            Grid.Row="0"
+            Grid.Column="0"
+            Background="{ThemeResource GitPullerSidebarBrush}"
+            BorderBrush="{ThemeResource GitPullerBorderBrush}"
+            BorderThickness="0,0,1,0">
+            <Grid RowSpacing="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-                <VisualState x:Name="NarrowState">
-                    <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="0" />
-                    </VisualState.StateTriggers>
-                    <VisualState.Setters>
-                        <Setter Target="CategoryNavigation.PaneDisplayMode" Value="LeftMinimal" />
-                        <Setter Target="CategoryNavigation.IsPaneOpen" Value="False" />
-                        <Setter Target="ContentHost.Padding" Value="{StaticResource GitPullerCompactPadding}" />
-                        <Setter Target="ResultsColumn.Width" Value="*" />
-                        <Setter Target="DetailsColumn.Width" Value="0" />
-                        <Setter Target="DetailsRow.Height" Value="Auto" />
-                        <Setter Target="DetailsPane.(Grid.Row)" Value="1" />
-                        <Setter Target="DetailsPane.(Grid.Column)" Value="0" />
-                        <Setter Target="DetailsPane.Margin" Value="0,12,0,0" />
-                        <Setter Target="AddCategoryColumn.Width" Value="*" />
-                        <Setter Target="AddUrlColumn.Width" Value="0" />
-                        <Setter Target="AddButtonColumn.Width" Value="0" />
-                        <Setter Target="AddUrlRow.Height" Value="Auto" />
-                        <Setter Target="AddButtonRow.Height" Value="Auto" />
-                        <Setter Target="AddCategoryBox.(Grid.Row)" Value="0" />
-                        <Setter Target="AddCategoryBox.(Grid.Column)" Value="0" />
-                        <Setter Target="RepositoryUrlBox.(Grid.Row)" Value="1" />
-                        <Setter Target="RepositoryUrlBox.(Grid.Column)" Value="0" />
-                        <Setter Target="AddRepositoryButton.(Grid.Row)" Value="2" />
-                        <Setter Target="AddRepositoryButton.(Grid.Column)" Value="0" />
-                        <Setter Target="AddRepositoryButton.Margin" Value="0" />
-                    </VisualState.Setters>
-                </VisualState>
-            </VisualStateGroup>
-        </VisualStateManager.VisualStateGroups>
-
-        <NavigationView
-            x:Name="CategoryNavigation"
-            IsBackButtonVisible="Collapsed"
-            IsSettingsVisible="False"
-            OpenPaneLength="280">
-            <NavigationView.PaneHeader>
-                <StackPanel
-                    x:Name="PaneHeaderHost"
-                    Padding="{StaticResource GitPullerCompactPadding}"
-                    Spacing="4">
+                <Grid Padding="18,16,18,8" RowSpacing="5">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
                     <TextBlock
-                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
                         Text="Library root" />
                     <TextBlock
+                        Grid.Row="1"
+                        FontSize="13"
+                        Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
                         Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                        Text="{x:Bind ViewModel.LibraryRoot, Mode=OneWay}" />
-                </StackPanel>
-            </NavigationView.PaneHeader>
-
-            <NavigationView.PaneCustomContent>
-                <Grid
-                    x:Name="PaneContentHost"
-                    Margin="0,0,0,12"
-                    Padding="{StaticResource GitPullerCompactPadding}">
-                    <TreeView
-                        x:Name="FolderTreeView"
-                        MinWidth="0"
-                        SelectionChanged="FolderTreeView_SelectionChanged"
-                        SelectionMode="Single">
-                        <TreeView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid
-                                    MinWidth="0"
-                                    Padding="0,4"
-                                    ColumnSpacing="10"
-                                    ToolTipService.ToolTip="{Binding Content.AttentionText}">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-
-                                    <FontIcon
-                                        Margin="0,2,0,0"
-                                        FontSize="15"
-                                        Foreground="{ThemeResource GitPullerFolderAccentBrush}"
-                                        Glyph="&#xE8B7;" />
-
-                                    <StackPanel
-                                        Grid.Column="1"
-                                        MinWidth="0"
-                                        Spacing="2">
-                                        <TextBlock
-                                            FontWeight="SemiBold"
-                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{Binding Content.Name}" />
-                                        <StackPanel
-                                            Orientation="Horizontal"
-                                            Spacing="10">
-                                            <StackPanel
-                                                Orientation="Horizontal"
-                                                Spacing="4">
-                                                <FontIcon
-                                                    FontSize="11"
-                                                    Foreground="{ThemeResource GitPullerFolderAccentBrush}"
-                                                    Glyph="&#xE8CC;" />
-                                                <TextBlock
-                                                    Foreground="{ThemeResource GitPullerFolderAccentBrush}"
-                                                    Style="{StaticResource CaptionTextBlockStyle}"
-                                                    Text="{Binding Content.RepositoryCount}" />
-                                            </StackPanel>
-                                            <StackPanel
-                                                Orientation="Horizontal"
-                                                Spacing="4">
-                                                <FontIcon
-                                                    FontSize="11"
-                                                    Foreground="{ThemeResource GitPullerWarningBrush}"
-                                                    Glyph="&#xE7BA;" />
-                                                <TextBlock
-                                                    Foreground="{ThemeResource GitPullerWarningBrush}"
-                                                    Style="{StaticResource CaptionTextBlockStyle}"
-                                                    Text="{Binding Content.AttentionCount}" />
-                                            </StackPanel>
-                                        </StackPanel>
-                                        <TextBlock
-                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                            Style="{StaticResource CaptionTextBlockStyle}"
-                                            Text="{Binding Content.AttentionText}"
-                                            TextWrapping="WrapWholeWords" />
-                                    </StackPanel>
-                                </Grid>
-                            </DataTemplate>
-                        </TreeView.ItemTemplate>
-                    </TreeView>
+                        Text="{Binding LibraryRoot}" />
                 </Grid>
-            </NavigationView.PaneCustomContent>
 
-            <NavigationView.Content>
-                <Grid
-                    x:Name="ContentHost"
-                    Padding="{StaticResource GitPullerPagePadding}">
-                    <Grid
-                        x:Name="ContentColumns"
-                        ColumnSpacing="{StaticResource GitPullerColumnSpacing}"
-                        RowSpacing="{StaticResource GitPullerColumnSpacing}">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*" />
-                            <RowDefinition x:Name="DetailsRow" Height="0" />
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition x:Name="ResultsColumn" Width="2*" />
-                            <ColumnDefinition x:Name="DetailsColumn" Width="*" />
-                        </Grid.ColumnDefinitions>
-
-                        <Grid
-                            x:Name="ResultsPane"
-                            Grid.Row="0"
-                            Grid.Column="0"
-                            MinWidth="0"
-                            RowSpacing="{StaticResource GitPullerRowSpacing}">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-
-                            <CommandBar
-                                Grid.Row="0"
-                                DefaultLabelPosition="Right"
-                                IsOpen="False">
-                                <AppBarButton
-                                    Command="{x:Bind ViewModel.RunSyncCommand}"
-                                    Label="{x:Bind ViewModel.RunSyncButtonText, Mode=OneWay}">
-                                    <AppBarButton.Icon>
-                                        <SymbolIcon Symbol="Refresh" />
-                                    </AppBarButton.Icon>
-                                </AppBarButton>
-                                <AppBarButton
-                                    Command="{x:Bind ViewModel.RetrySelectedCommand}"
-                                    Label="Retry selected">
-                                    <AppBarButton.Icon>
-                                        <SymbolIcon Symbol="Refresh" />
-                                    </AppBarButton.Icon>
-                                </AppBarButton>
-                                <AppBarButton
-                                    Click="AddRepositoryButton_Click"
-                                    Label="Add URL">
-                                    <AppBarButton.Icon>
-                                        <SymbolIcon Symbol="Add" />
-                                    </AppBarButton.Icon>
-                                </AppBarButton>
-                                <AppBarButton
-                                    Command="{x:Bind ViewModel.OpenLibraryFolderCommand}"
-                                    Label="Open library">
-                                    <AppBarButton.Icon>
-                                        <SymbolIcon Symbol="OpenFile" />
-                                    </AppBarButton.Icon>
-                                </AppBarButton>
-                                <AppBarButton
-                                    Command="{x:Bind ViewModel.OpenLatestReportCommand}"
-                                    Label="Open report">
-                                    <AppBarButton.Icon>
-                                        <SymbolIcon Symbol="Page" />
-                                    </AppBarButton.Icon>
-                                </AppBarButton>
-                            </CommandBar>
-
+                <TreeView
+                    x:Name="FolderTreeView"
+                    Grid.Row="1"
+                    Margin="8,0,8,12"
+                    Background="Transparent"
+                    SelectionChanged="FolderTreeView_SelectionChanged"
+                    SelectionMode="Single">
+                    <TreeView.ItemTemplate>
+                        <DataTemplate>
                             <Grid
-                                x:Name="AddRepositoryGrid"
-                                Grid.Row="1"
-                                ColumnSpacing="{StaticResource GitPullerColumnSpacing}"
-                                RowSpacing="{StaticResource GitPullerRowSpacing}">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition x:Name="AddUrlRow" Height="0" />
-                                    <RowDefinition x:Name="AddButtonRow" Height="0" />
-                                </Grid.RowDefinitions>
+                                MinWidth="0"
+                                Padding="8,7"
+                                ColumnSpacing="8"
+                                ToolTipService.ToolTip="{Binding Content.AttentionText}">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition x:Name="AddCategoryColumn" Width="220" />
-                                    <ColumnDefinition x:Name="AddUrlColumn" Width="*" />
-                                    <ColumnDefinition x:Name="AddButtonColumn" Width="Auto" />
+                                    <ColumnDefinition Width="22" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
 
-                                <ComboBox
-                                    x:Name="AddCategoryBox"
-                                    Grid.Row="0"
-                                    Grid.Column="0"
-                                    DisplayMemberPath="Name"
-                                    Header="Add target category"
-                                    ItemsSource="{x:Bind ViewModel.Categories, Mode=OneWay}"
-                                    PlaceholderText="Choose category"
-                                    SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}" />
+                                <FontIcon
+                                    FontSize="14"
+                                    Foreground="{ThemeResource GitPullerFolderAccentBrush}"
+                                    Glyph="{Binding Content.TreeIconGlyph}"
+                                    VerticalAlignment="Top" />
 
-                                <TextBox
-                                    x:Name="RepositoryUrlBox"
-                                    Grid.Row="0"
-                                    Grid.Column="1"
-                                    Header="Repository URL"
-                                    PlaceholderText="https://github.com/owner/repository.git"
-                                    Text="{x:Bind ViewModel.RepositoryUrlToAdd, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                    TextWrapping="Wrap" />
+                                <StackPanel Grid.Column="1" MinWidth="0" Spacing="2">
+                                    <TextBlock
+                                        FontSize="14"
+                                        FontWeight="SemiBold"
+                                        Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                        Text="{Binding Content.Name}"
+                                        TextTrimming="CharacterEllipsis"
+                                        TextWrapping="NoWrap" />
+                                    <TextBlock
+                                        FontSize="12"
+                                        Foreground="{ThemeResource GitPullerSubtleTextBrush}"
+                                        Text="{Binding Content.TreeMetaText}"
+                                        TextTrimming="CharacterEllipsis"
+                                        TextWrapping="NoWrap" />
+                                </StackPanel>
 
-                                <Button
-                                    x:Name="AddRepositoryButton"
-                                    Grid.Row="0"
+                                <ContentControl
                                     Grid.Column="2"
-                                    Margin="0,28,0,0"
-                                    Click="AddRepositoryButton_Click"
-                                    Content="Add" />
+                                    Content="{Binding Content.RepositoryResult}"
+                                    ContentTemplateSelector="{StaticResource RepositoryResultStatusBadgeTemplateSelector}"
+                                    VerticalAlignment="Top" />
                             </Grid>
+                        </DataTemplate>
+                    </TreeView.ItemTemplate>
+                </TreeView>
+            </Grid>
+        </Border>
 
-                            <StackPanel Grid.Row="2" Spacing="8">
-                                <InfoBar
-                                    IsOpen="{x:Bind ViewModel.HasRunError, Mode=OneWay}"
-                                    Message="{x:Bind ViewModel.RunErrorMessage, Mode=OneWay}"
-                                    Severity="Error"
-                                    Title="Sync failed" />
-                                <InfoBar
-                                    IsOpen="{x:Bind ViewModel.HasRunInfoStatus, Mode=OneWay}"
-                                    Message="{x:Bind ViewModel.RunStatusMessage, Mode=OneWay}"
-                                    Severity="Informational"
-                                    Title="{x:Bind ViewModel.RunStatusTitle, Mode=OneWay}" />
-                                <InfoBar
-                                    IsOpen="{x:Bind ViewModel.HasAttentionItems, Mode=OneWay}"
-                                    Message="{x:Bind ViewModel.AttentionSummary, Mode=OneWay}"
-                                    Severity="Warning"
-                                    Title="Run review required" />
-                                <InfoBar
-                                    IsOpen="{x:Bind ViewModel.HasAddRepositoryError, Mode=OneWay}"
-                                    Message="{x:Bind ViewModel.AddRepositoryErrorMessage, Mode=OneWay}"
-                                    Severity="Error"
-                                    Title="Add repository failed" />
-                                <InfoBar
-                                    IsOpen="{x:Bind ViewModel.HasAddRepositoryStatus, Mode=OneWay}"
-                                    Message="{x:Bind ViewModel.AddRepositoryStatusMessage, Mode=OneWay}"
-                                    Severity="Success"
-                                    Title="Repository added" />
-                                <InfoBar
-                                    IsOpen="{x:Bind ViewModel.HasRemovedRepositoryError, Mode=OneWay}"
-                                    Message="{x:Bind ViewModel.RemovedRepositoryErrorMessage, Mode=OneWay}"
-                                    Severity="Error"
-                                    Title="Removed repository action failed" />
-                                <InfoBar
-                                    IsOpen="{x:Bind ViewModel.HasRemovedRepositoryStatus, Mode=OneWay}"
-                                    Message="{x:Bind ViewModel.RemovedRepositoryStatusMessage, Mode=OneWay}"
-                                    Severity="Success"
-                                    Title="Removed repository updated" />
-                                <InfoBar
-                                    IsOpen="{x:Bind ViewModel.HasLaunchError, Mode=OneWay}"
-                                    Message="{x:Bind ViewModel.LaunchErrorMessage, Mode=OneWay}"
-                                    Severity="Error"
-                                    Title="Open action failed" />
-                                <InfoBar
-                                    IsOpen="{x:Bind ViewModel.HasLaunchStatus, Mode=OneWay}"
-                                    Message="{x:Bind ViewModel.LaunchStatusMessage, Mode=OneWay}"
-                                    Severity="Informational"
-                                    Title="Open action" />
+        <Grid
+            x:Name="MainSurface"
+            Grid.Row="0"
+            Grid.Column="1"
+            Background="{ThemeResource GitPullerAppBackgroundBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="72" />
+                <RowDefinition Height="58" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="310" />
+            </Grid.RowDefinitions>
+
+            <Border
+                x:Name="SyncBar"
+                Grid.Row="0"
+                Padding="{StaticResource GitPullerSyncBarPadding}"
+                Background="{ThemeResource GitPullerPanelBrush}"
+                BorderBrush="{ThemeResource GitPullerBorderBrush}"
+                BorderThickness="0,0,0,1">
+                <Grid ColumnSpacing="24">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="1.2*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Spacing="5">
+                        <TextBlock
+                            Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
+                            Text="Library root" />
+                        <TextBlock
+                            FontSize="14"
+                            Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                            Text="{Binding LibraryRoot}"
+                            TextTrimming="CharacterEllipsis"
+                            TextWrapping="NoWrap" />
+                    </StackPanel>
+
+                    <Grid Grid.Column="1" RowSpacing="5">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock
+                            Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
+                            Text="Last sync" />
+                        <StackPanel
+                            Grid.Row="1"
+                            Orientation="Horizontal"
+                            Spacing="12">
+                            <TextBlock
+                                FontSize="14"
+                                Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                Text="{Binding LastSyncCompletedText}" />
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Ellipse
+                                    Width="9"
+                                    Height="9"
+                                    Fill="{ThemeResource GitPullerUpdatedBrush}"
+                                    VerticalAlignment="Center" />
                                 <TextBlock
-                                    Style="{StaticResource CaptionTextBlockStyle}"
-                                    Text="{x:Bind ViewModel.ResultSummary, Mode=OneWay}" />
-                                <TextBlock
+                                    FontSize="13"
                                     FontWeight="SemiBold"
-                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                    Text="{x:Bind ViewModel.RunProgressText, Mode=OneWay}" />
-                                <TextBlock
-                                    Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                    Text="{x:Bind ViewModel.CurrentProgressMessage, Mode=OneWay}" />
-                                <ToggleSwitch
-                                    AutomationProperties.Name="Clean repositories"
-                                    Header="Clean repositories"
-                                    IsOn="{x:Bind ViewModel.ShowCleanRepositories, Mode=TwoWay}"
-                                    OffContent="Hidden"
-                                    OnContent="Shown" />
-                                <ProgressBar
-                                    IsIndeterminate="{x:Bind ViewModel.IsRunProgressIndeterminate, Mode=OneWay}"
-                                    Maximum="100"
-                                    Value="{x:Bind ViewModel.RunProgress, Mode=OneWay}" />
-
-                                <Expander Header="Advanced options">
-                                    <StackPanel Padding="{StaticResource GitPullerTightPadding}" Spacing="10">
-                                        <Grid ColumnSpacing="{StaticResource GitPullerColumnSpacing}" RowSpacing="{StaticResource GitPullerRowSpacing}">
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto" />
-                                                <RowDefinition Height="Auto" />
-                                                <RowDefinition Height="Auto" />
-                                            </Grid.RowDefinitions>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-
-                                            <NumberBox
-                                                x:Name="AdvancedWorkersNumberBox"
-                                                Grid.Row="0"
-                                                Grid.Column="0"
-                                                Header="Workers"
-                                                Minimum="1"
-                                                SpinButtonPlacementMode="Inline"
-                                                Value="{x:Bind ViewModel.AdvancedWorkers, Mode=OneWay}"
-                                                ValueChanged="AdvancedWorkersNumberBox_ValueChanged" />
-                                            <NumberBox
-                                                x:Name="AdvancedTimeoutNumberBox"
-                                                Grid.Row="0"
-                                                Grid.Column="1"
-                                                Header="Timeout seconds"
-                                                Minimum="1"
-                                                SpinButtonPlacementMode="Inline"
-                                                Value="{x:Bind ViewModel.AdvancedTimeoutSeconds, Mode=OneWay}"
-                                                ValueChanged="AdvancedTimeoutNumberBox_ValueChanged" />
-                                            <NumberBox
-                                                x:Name="AdvancedStaleLockNumberBox"
-                                                Grid.Row="1"
-                                                Grid.Column="0"
-                                                Header="Stale lock minutes"
-                                                Minimum="1"
-                                                SpinButtonPlacementMode="Inline"
-                                                Value="{x:Bind ViewModel.AdvancedStaleLockMinutes, Mode=OneWay}"
-                                                ValueChanged="AdvancedStaleLockNumberBox_ValueChanged" />
-                                            <ToggleSwitch
-                                                Grid.Row="1"
-                                                Grid.Column="1"
-                                                Header="Branch sync"
-                                                IsOn="{x:Bind ViewModel.AdvancedSyncAllBranches, Mode=TwoWay}"
-                                                OffContent="Current branch only"
-                                                OnContent="All branches" />
-                                            <ToggleSwitch
-                                                Grid.Row="2"
-                                                Grid.Column="0"
-                                                Header="Stale lock cleanup"
-                                                IsOn="{x:Bind ViewModel.AdvancedNoStaleLockCleanup, Mode=TwoWay}"
-                                                OffContent="Cleanup enabled"
-                                                OnContent="No cleanup" />
-                                            <ToggleSwitch
-                                                Grid.Row="2"
-                                                Grid.Column="1"
-                                                Header="Verbose report"
-                                                IsOn="{x:Bind ViewModel.AdvancedVerboseReport, Mode=TwoWay}"
-                                                OffContent="Standard"
-                                                OnContent="Verbose" />
-                                        </Grid>
-
-                                        <ToggleSwitch
-                                            Header="Missing submodules"
-                                            IsOn="{x:Bind ViewModel.AdvancedInitMissingSubmodules, Mode=TwoWay}"
-                                            OffContent="Leave missing"
-                                            OnContent="Initialize missing" />
-                                        <InfoBar
-                                            IsOpen="{x:Bind ViewModel.HasAdvancedOptionsError, Mode=OneWay}"
-                                            Message="{x:Bind ViewModel.AdvancedOptionsErrorMessage, Mode=OneWay}"
-                                            Severity="Error"
-                                            Title="Advanced options failed" />
-                                        <InfoBar
-                                            IsOpen="{x:Bind ViewModel.HasAdvancedOptionsStatus, Mode=OneWay}"
-                                            Message="{x:Bind ViewModel.AdvancedOptionsStatusMessage, Mode=OneWay}"
-                                            Severity="Success"
-                                            Title="Advanced options" />
-                                        <Button
-                                            Command="{x:Bind ViewModel.SaveAdvancedOptionsCommand}"
-                                            Content="Save defaults"
-                                            Style="{StaticResource AccentButtonStyle}" />
-                                    </StackPanel>
-                                </Expander>
+                                    Foreground="{ThemeResource GitPullerUpdatedBrush}"
+                                    Text="{Binding RunCompletionStatusText}" />
                             </StackPanel>
+                        </StackPanel>
+                    </Grid>
 
-                            <ListView
-                                Grid.Row="3"
-                                IsItemClickEnabled="False"
-                                ItemContainerStyle="{StaticResource GitPullerRepositoryListViewItemStyle}"
-                                ItemsSource="{x:Bind ViewModel.VisibleResults, Mode=OneWay}"
-                                SelectedItem="{x:Bind ViewModel.SelectedResult, Mode=TwoWay}"
-                                SelectionMode="Single">
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:RepositoryResultViewModel">
-                                        <Grid
-                                            MinWidth="0"
-                                            Padding="{StaticResource GitPullerTightPadding}"
-                                            ColumnSpacing="12"
-                                            RowSpacing="4">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto" />
-                                                <RowDefinition Height="Auto" />
-                                                <RowDefinition Height="Auto" />
-                                            </Grid.RowDefinitions>
+                    <StackPanel
+                        Grid.Column="2"
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        VerticalAlignment="Center">
+                        <Button
+                            Command="{Binding RunSyncCommand}"
+                            Style="{StaticResource GitPullerPrimaryButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon FontSize="13" Glyph="&#xE895;" />
+                                <TextBlock Text="{Binding RunSyncButtonText}" />
+                            </StackPanel>
+                        </Button>
+                        <Button
+                            Command="{Binding OpenLatestReportCommand}"
+                            Style="{StaticResource GitPullerChromeButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon FontSize="13" Glyph="&#xE8A5;" />
+                                <TextBlock Text="Open latest report" />
+                            </StackPanel>
+                        </Button>
+                        <Button
+                            Click="AddRepositoryButton_Click"
+                            Style="{StaticResource GitPullerChromeButtonStyle}">
+                            <FontIcon FontSize="13" Glyph="&#xE710;" />
+                        </Button>
+                        <Button
+                            Click="AdvancedOptionsButton_Click"
+                            Style="{StaticResource GitPullerChromeButtonStyle}">
+                            <FontIcon FontSize="13" Glyph="&#xE713;" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
 
-                                            <ContentControl
-                                                Grid.Row="0"
-                                                Grid.Column="0"
-                                                Content="{x:Bind}"
-                                                ContentTemplateSelector="{StaticResource RepositoryResultStatusBadgeTemplateSelector}"
-                                                HorizontalAlignment="Left"
-                                                VerticalAlignment="Top" />
-                                            <TextBlock
-                                                Grid.Row="0"
-                                                Grid.Column="1"
-                                                FontWeight="SemiBold"
-                                                Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                Text="{x:Bind Name}" />
-                                            <TextBlock
-                                                Grid.Row="0"
-                                                Grid.Column="2"
-                                                Style="{StaticResource CaptionTextBlockStyle}"
-                                                Text="{x:Bind RetryPolicyText}"
-                                                TextAlignment="Right"
-                                                TextWrapping="WrapWholeWords" />
+            <Border
+                x:Name="StatusFilterBar"
+                Grid.Row="1"
+                Padding="18,10"
+                Background="{ThemeResource GitPullerPanelBrush}"
+                BorderBrush="{ThemeResource GitPullerBorderBrush}"
+                BorderThickness="0,0,0,1">
+                <Grid ColumnSpacing="14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="260" />
+                    </Grid.ColumnDefinitions>
 
-                                            <TextBlock
-                                                Grid.Row="1"
-                                                Grid.Column="1"
-                                                Grid.ColumnSpan="2"
-                                                Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                Text="{x:Bind Summary}" />
-                                            <TextBlock
-                                                Grid.Row="2"
-                                                Grid.Column="1"
-                                                Grid.ColumnSpan="2"
-                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                Text="{x:Bind Path}" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                        </Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            Click="AllFilterButton_Click"
+                            Content="{Binding AllFilterText}"
+                            Style="{StaticResource GitPullerStatusFilterButtonStyle}" />
+                        <Button
+                            Click="FailedFilterButton_Click"
+                            Content="{Binding FailedFilterText}"
+                            Foreground="{ThemeResource GitPullerFailedBrush}"
+                            Style="{StaticResource GitPullerStatusFilterButtonStyle}" />
+                        <Button
+                            Click="WarningFilterButton_Click"
+                            Content="{Binding WarningFilterText}"
+                            Foreground="{ThemeResource GitPullerWarningBrush}"
+                            Style="{StaticResource GitPullerStatusFilterButtonStyle}" />
+                        <Button
+                            Click="UpdatedFilterButton_Click"
+                            Content="{Binding UpdatedFilterText}"
+                            Foreground="{ThemeResource GitPullerUpdatedBrush}"
+                            Style="{StaticResource GitPullerStatusFilterButtonStyle}" />
+                        <Button
+                            Click="CleanFilterButton_Click"
+                            Content="{Binding CleanFilterText}"
+                            Foreground="{ThemeResource GitPullerCleanBrush}"
+                            Style="{StaticResource GitPullerStatusFilterButtonStyle}" />
+                    </StackPanel>
+
+                    <TextBlock
+                        Grid.Column="1"
+                        FontSize="12"
+                        Foreground="{ThemeResource GitPullerSubtleTextBrush}"
+                        Text="{Binding ResultSummary}"
+                        TextTrimming="CharacterEllipsis"
+                        VerticalAlignment="Center" />
+
+                    <TextBox
+                        Grid.Column="2"
+                        MinWidth="220"
+                        PlaceholderText="Search repositories"
+                        Text="{Binding RepositorySearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                </Grid>
+            </Border>
+
+            <Grid
+                x:Name="ResultTable"
+                Grid.Row="2"
+                Background="{ThemeResource GitPullerPanelBrush}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="38" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Border
+                    Padding="16,0"
+                    BorderBrush="{ThemeResource GitPullerBorderBrush}"
+                    BorderThickness="0,0,0,1">
+                    <Grid ColumnSpacing="12" VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="114" />
+                            <ColumnDefinition Width="92" />
+                            <ColumnDefinition Width="66" />
+                            <ColumnDefinition Width="58" />
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="150" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Style="{StaticResource GitPullerMicroLabelTextBlockStyle}" Text="Repository" />
+                        <TextBlock Grid.Column="1" Style="{StaticResource GitPullerMicroLabelTextBlockStyle}" Text="Status" />
+                        <TextBlock Grid.Column="2" Style="{StaticResource GitPullerMicroLabelTextBlockStyle}" Text="Current" />
+                        <TextBlock Grid.Column="3" Style="{StaticResource GitPullerMicroLabelTextBlockStyle}" Text="Behind" />
+                        <TextBlock Grid.Column="4" Style="{StaticResource GitPullerMicroLabelTextBlockStyle}" Text="Ahead" />
+                        <TextBlock Grid.Column="5" Style="{StaticResource GitPullerMicroLabelTextBlockStyle}" Text="Message" />
+                        <TextBlock Grid.Column="6" Style="{StaticResource GitPullerMicroLabelTextBlockStyle}" Text="Last updated" />
+                    </Grid>
+                </Border>
+
+                <ListView
+                    Grid.Row="1"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    ItemContainerStyle="{StaticResource GitPullerRepositoryListViewItemStyle}"
+                    ItemsSource="{Binding VisibleResults}"
+                    SelectedItem="{Binding SelectedResult, Mode=TwoWay}"
+                    SelectionMode="Single">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:RepositoryResultViewModel">
+                            <Grid
+                                MinHeight="46"
+                                Padding="16,6"
+                                ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="114" />
+                                    <ColumnDefinition Width="92" />
+                                    <ColumnDefinition Width="66" />
+                                    <ColumnDefinition Width="58" />
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="150" />
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel MinWidth="0" Spacing="1">
+                                    <TextBlock
+                                        FontSize="13"
+                                        FontWeight="SemiBold"
+                                        Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                        Text="{x:Bind Name}"
+                                        TextTrimming="CharacterEllipsis"
+                                        TextWrapping="NoWrap" />
+                                    <TextBlock
+                                        FontSize="11"
+                                        Foreground="{ThemeResource GitPullerMutedTextBrush}"
+                                        Text="{x:Bind Category}"
+                                        TextTrimming="CharacterEllipsis"
+                                        TextWrapping="NoWrap" />
+                                </StackPanel>
+
+                                <ContentControl
+                                    Grid.Column="1"
+                                    Content="{Binding}"
+                                    ContentTemplateSelector="{StaticResource RepositoryResultStatusBadgeTemplateSelector}"
+                                    VerticalAlignment="Center" />
+                                <TextBlock
+                                    Grid.Column="2"
+                                    FontFamily="Consolas"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource GitPullerSubtleTextBrush}"
+                                    Text="{x:Bind CurrentText}"
+                                    TextTrimming="CharacterEllipsis"
+                                    VerticalAlignment="Center" />
+                                <TextBlock
+                                    Grid.Column="3"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                    Text="{x:Bind BehindText}"
+                                    VerticalAlignment="Center" />
+                                <TextBlock
+                                    Grid.Column="4"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                    Text="{x:Bind AheadText}"
+                                    VerticalAlignment="Center" />
+                                <TextBlock
+                                    Grid.Column="5"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource GitPullerSubtleTextBrush}"
+                                    Text="{x:Bind MessageText}"
+                                    TextTrimming="CharacterEllipsis"
+                                    VerticalAlignment="Center" />
+                                <TextBlock
+                                    Grid.Column="6"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource GitPullerSubtleTextBrush}"
+                                    Text="{x:Bind LastUpdatedText}"
+                                    TextTrimming="CharacterEllipsis"
+                                    VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+
+            <Border
+                x:Name="DetailsPane"
+                Grid.Row="3"
+                Padding="{StaticResource GitPullerDetailsPadding}"
+                Background="{ThemeResource GitPullerSidebarAltBrush}"
+                BorderBrush="{ThemeResource GitPullerBorderBrush}"
+                BorderThickness="0,1,0,0">
+                <Grid RowSpacing="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon
+                            FontSize="18"
+                            Foreground="{ThemeResource GitPullerFolderAccentBrush}"
+                            Glyph="&#xE8A5;"
+                            VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" MinWidth="0" Spacing="2">
+                            <TextBlock
+                                FontSize="15"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                Text="{Binding SelectedResultName}"
+                                TextTrimming="CharacterEllipsis" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource GitPullerSubtleTextBrush}"
+                                Text="{Binding SelectedResultPath}"
+                                TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <ContentControl
+                            Grid.Column="2"
+                            Content="{Binding SelectedResult}"
+                            ContentTemplateSelector="{StaticResource RepositoryResultStatusBadgeTemplateSelector}"
+                            VerticalAlignment="Center" />
+                    </Grid>
+
+                    <Grid Grid.Row="1" ColumnSpacing="14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.35*" />
+                            <ColumnDefinition Width="1*" />
+                        </Grid.ColumnDefinitions>
 
                         <Border
-                            x:Name="DetailsPane"
-                            Grid.Row="0"
-                            Grid.Column="1"
-                            Margin="16,0,0,0"
-                            Padding="{StaticResource GitPullerCompactPadding}"
-                            Background="{ThemeResource GitPullerSubtlePanelBrush}"
-                            BorderBrush="{ThemeResource GitPullerSubtleBorderBrush}"
+                            Padding="14,12"
+                            Background="{ThemeResource GitPullerPanelBrush}"
+                            BorderBrush="{ThemeResource GitPullerBorderBrush}"
                             BorderThickness="1"
-                            CornerRadius="8">
-                            <ScrollViewer
-                                HorizontalScrollBarVisibility="Disabled"
-                                VerticalScrollBarVisibility="Auto">
-                                <StackPanel Spacing="12">
-                                    <TextBlock
-                                        Style="{StaticResource TitleTextBlockStyle}"
-                                        Text="{x:Bind ViewModel.SelectedResultName, Mode=OneWay}"
-                                        TextWrapping="WrapWholeWords" />
-
-                                    <InfoBar
-                                        IsOpen="{x:Bind ViewModel.HasSelectedResult, Mode=OneWay}"
-                                        Message="{x:Bind ViewModel.SelectedResultSummary, Mode=OneWay}"
-                                        Severity="Informational"
-                                        Title="{x:Bind ViewModel.SelectedResultStatus, Mode=OneWay}" />
-
-                                    <StackPanel Spacing="4">
-                                        <TextBlock FontWeight="SemiBold" Text="Category" />
+                            CornerRadius="{StaticResource GitPullerPanelCornerRadius}">
+                            <Grid RowSpacing="8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock
+                                    Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
+                                    Text="Diagnostics" />
+                                <TextBlock
+                                    Grid.Row="1"
+                                    Style="{StaticResource GitPullerPanelTitleTextBlockStyle}"
+                                    Text="{Binding SelectedResultDiagnosticTitle}" />
+                                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="8">
                                         <TextBlock
+                                            Foreground="{ThemeResource GitPullerSubtleTextBrush}"
                                             Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{x:Bind ViewModel.SelectedResultCategory, Mode=OneWay}" />
+                                            Text="{Binding SelectedResultDiagnosticExplanation}" />
+                                        <Border
+                                            Padding="10"
+                                            Background="{ThemeResource GitPullerPanelAltBrush}"
+                                            BorderBrush="{ThemeResource GitPullerBorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="6">
+                                            <TextBlock
+                                                Style="{StaticResource GitPullerEvidenceTextBlockStyle}"
+                                                Text="{Binding SelectedResultEvidence}" />
+                                        </Border>
+                                        <TextBlock
+                                            Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{Binding SelectedResultSuggestedAction}" />
                                     </StackPanel>
-
-                                    <StackPanel Spacing="4">
-                                        <TextBlock FontWeight="SemiBold" Text="Remote URL" />
-                                        <TextBlock
-                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{x:Bind ViewModel.SelectedResultRemoteUrl, Mode=OneWay}" />
-                                        <Button
-                                            Command="{x:Bind ViewModel.OpenSelectedRemoteCommand}"
-                                            Content="Open remote" />
-                                    </StackPanel>
-
-                                    <StackPanel Spacing="4">
-                                        <TextBlock FontWeight="SemiBold" Text="Local path" />
-                                        <TextBlock
-                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{x:Bind ViewModel.SelectedResultPath, Mode=OneWay}" />
-                                        <Button
-                                            Command="{x:Bind ViewModel.OpenSelectedRepositoryFolderCommand}"
-                                            Content="Open folder" />
-                                    </StackPanel>
-
-                                    <StackPanel Spacing="4">
-                                        <TextBlock FontWeight="SemiBold" Text="Diagnostic title" />
-                                        <TextBlock
-                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{x:Bind ViewModel.SelectedResultDiagnosticTitle, Mode=OneWay}" />
-                                        <TextBlock FontWeight="SemiBold" Text="Explanation" />
-                                        <TextBlock
-                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{x:Bind ViewModel.SelectedResultDiagnosticExplanation, Mode=OneWay}" />
-                                        <TextBlock FontWeight="SemiBold" Text="Suggested action" />
-                                        <TextBlock
-                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{x:Bind ViewModel.SelectedResultSuggestedAction, Mode=OneWay}" />
-                                    </StackPanel>
-
-                                    <StackPanel Spacing="4">
-                                        <TextBlock FontWeight="SemiBold" Text="Retry policy" />
-                                        <TextBlock
-                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{x:Bind ViewModel.SelectedResultRetryPolicyText, Mode=OneWay}" />
-                                        <TextBlock
-                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{x:Bind ViewModel.SelectedResultRetryPolicyDescription, Mode=OneWay}" />
-                                        <StackPanel
-                                            Orientation="Horizontal"
-                                            Spacing="8">
-                                            <Button
-                                                x:Name="PrimaryRetrySelectedDetailButton"
-                                                Command="{x:Bind ViewModel.RetrySelectedCommand}"
-                                                Content="{x:Bind ViewModel.SelectedResultRetryButtonText, Mode=OneWay}"
-                                                IsEnabled="{x:Bind ViewModel.SelectedResultCanRetry, Mode=OneWay}"
-                                                Style="{StaticResource AccentButtonStyle}"
-                                                Visibility="Collapsed" />
-                                            <Button
-                                                x:Name="SecondaryRetrySelectedDetailButton"
-                                                Command="{x:Bind ViewModel.RetrySelectedCommand}"
-                                                Content="{x:Bind ViewModel.SelectedResultRetryButtonText, Mode=OneWay}"
-                                                IsEnabled="{x:Bind ViewModel.SelectedResultCanRetry, Mode=OneWay}"
-                                                Visibility="Collapsed" />
-                                        </StackPanel>
-                                    </StackPanel>
-
-                                    <Expander Header="Evidence" IsExpanded="True">
-                                        <TextBlock
-                                            Padding="{StaticResource GitPullerTightPadding}"
-                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{x:Bind ViewModel.SelectedResultEvidence, Mode=OneWay}" />
-                                    </Expander>
-
-                                    <Expander Header="Related command">
-                                        <TextBlock
-                                            Padding="{StaticResource GitPullerTightPadding}"
-                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                            Text="{x:Bind ViewModel.SelectedResultRelatedCommand, Mode=OneWay}" />
-                                    </Expander>
-
-                                    <Expander Header="Relevant log output">
-                                        <ItemsControl ItemsSource="{x:Bind ViewModel.SelectedResultLogLines, Mode=OneWay}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <TextBlock
-                                                        Margin="0,0,0,8"
-                                                        Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                        Text="{Binding}" />
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </Expander>
-
-                                    <Expander Header="Removed repositories">
-                                        <ListView ItemsSource="{x:Bind ViewModel.RemovedRepositories, Mode=OneWay}">
-                                            <ListView.ItemTemplate>
-                                                <DataTemplate x:DataType="vm:RemovedRepositoryViewModel">
-                                                    <Grid
-                                                        MinWidth="0"
-                                                        Padding="{StaticResource GitPullerTightPadding}"
-                                                        RowSpacing="8">
-                                                        <Grid.RowDefinitions>
-                                                            <RowDefinition Height="Auto" />
-                                                            <RowDefinition Height="Auto" />
-                                                            <RowDefinition Height="Auto" />
-                                                            <RowDefinition Height="Auto" />
-                                                            <RowDefinition Height="Auto" />
-                                                        </Grid.RowDefinitions>
-
-                                                        <TextBlock
-                                                            Grid.Row="0"
-                                                            FontWeight="SemiBold"
-                                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                            Text="{x:Bind Name}" />
-                                                        <TextBlock
-                                                            Grid.Row="1"
-                                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                            Text="{x:Bind RestoreStateText}" />
-                                                        <TextBlock
-                                                            Grid.Row="2"
-                                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                            Text="{x:Bind OriginalPath}" />
-                                                        <TextBlock
-                                                            Grid.Row="3"
-                                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
-                                                            Text="{x:Bind RemovedPath}" />
-                                                        <CommandBar
-                                                            Grid.Row="4"
-                                                            DefaultLabelPosition="Right"
-                                                            IsOpen="False">
-                                                            <AppBarButton
-                                                                Click="RestoreRemovedRepositoryButton_Click"
-                                                                IsEnabled="{x:Bind CanRestore}"
-                                                                Label="Restore">
-                                                                <AppBarButton.Icon>
-                                                                    <SymbolIcon Symbol="Undo" />
-                                                                </AppBarButton.Icon>
-                                                            </AppBarButton>
-                                                            <AppBarButton
-                                                                Click="RestoreRemovedRepositoryAsButton_Click"
-                                                                Label="Restore as">
-                                                                <AppBarButton.Icon>
-                                                                    <SymbolIcon Symbol="Save" />
-                                                                </AppBarButton.Icon>
-                                                            </AppBarButton>
-                                                            <AppBarButton
-                                                                Click="OpenRemovedRepositoryFolderButton_Click"
-                                                                Label="Open removed">
-                                                                <AppBarButton.Icon>
-                                                                    <SymbolIcon Symbol="OpenFile" />
-                                                                </AppBarButton.Icon>
-                                                            </AppBarButton>
-                                                            <AppBarButton
-                                                                Click="OpenRemovedRepositoryOriginalButton_Click"
-                                                                Label="Open original">
-                                                                <AppBarButton.Icon>
-                                                                    <SymbolIcon Symbol="Folder" />
-                                                                </AppBarButton.Icon>
-                                                            </AppBarButton>
-                                                            <AppBarButton
-                                                                Click="OpenRemovedRepositoryRemoteButton_Click"
-                                                                Label="Open remote">
-                                                                <AppBarButton.Icon>
-                                                                    <SymbolIcon Symbol="Link" />
-                                                                </AppBarButton.Icon>
-                                                            </AppBarButton>
-                                                            <AppBarButton
-                                                                Click="PermanentlyDeleteRemovedRepositoryButton_Click"
-                                                                Label="Delete">
-                                                                <AppBarButton.Icon>
-                                                                    <SymbolIcon Symbol="Delete" />
-                                                                </AppBarButton.Icon>
-                                                            </AppBarButton>
-                                                        </CommandBar>
-                                                    </Grid>
-                                                </DataTemplate>
-                                            </ListView.ItemTemplate>
-                                        </ListView>
-                                    </Expander>
+                                </ScrollViewer>
+                                <StackPanel
+                                    Grid.Row="3"
+                                    Orientation="Horizontal"
+                                    Spacing="8">
+                                    <Button
+                                        x:Name="PrimaryRetrySelectedDetailButton"
+                                        Command="{Binding RetrySelectedCommand}"
+                                        Content="{Binding SelectedResultRetryButtonText}"
+                                        Style="{StaticResource GitPullerPrimaryButtonStyle}" />
+                                    <Button
+                                        x:Name="SecondaryRetrySelectedDetailButton"
+                                        Command="{Binding RetrySelectedCommand}"
+                                        Content="{Binding SelectedResultRetryButtonText}"
+                                        Style="{StaticResource GitPullerChromeButtonStyle}" />
+                                    <Button
+                                        Command="{Binding OpenSelectedRepositoryFolderCommand}"
+                                        Content="Open folder"
+                                        Style="{StaticResource GitPullerChromeButtonStyle}" />
                                 </StackPanel>
-                            </ScrollViewer>
+                            </Grid>
+                        </Border>
+
+                        <Border
+                            Grid.Column="1"
+                            Padding="14,12"
+                            Background="{ThemeResource GitPullerPanelBrush}"
+                            BorderBrush="{ThemeResource GitPullerBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource GitPullerPanelCornerRadius}">
+                            <Grid RowSpacing="8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock
+                                    Style="{StaticResource GitPullerMicroLabelTextBlockStyle}"
+                                    Text="Repository info" />
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Style="{StaticResource GitPullerPanelTitleTextBlockStyle}" Text="{Binding SelectedResultCategory}" />
+                                        <TextBlock
+                                            Foreground="{ThemeResource GitPullerSubtleTextBrush}"
+                                            Style="{StaticResource GitPullerWrappingTextBlockStyle}"
+                                            Text="{Binding SelectedResultRemoteUrl}" />
+                                        <Grid ColumnSpacing="12" RowSpacing="6">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="95" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Style="{StaticResource GitPullerMicroLabelTextBlockStyle}" Text="Current" />
+                                            <TextBlock
+                                                Grid.Column="1"
+                                                FontFamily="Consolas"
+                                                FontSize="12"
+                                                Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                                Text="{Binding SelectedResultCurrentText}" />
+                                            <TextBlock Grid.Row="1" Style="{StaticResource GitPullerMicroLabelTextBlockStyle}" Text="Tracking" />
+                                            <TextBlock
+                                                Grid.Row="1"
+                                                Grid.Column="1"
+                                                FontSize="12"
+                                                Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                                Text="{Binding SelectedResultTrackingText}" />
+                                            <TextBlock Grid.Row="2" Style="{StaticResource GitPullerMicroLabelTextBlockStyle}" Text="Last updated" />
+                                            <TextBlock
+                                                Grid.Row="2"
+                                                Grid.Column="1"
+                                                FontSize="12"
+                                                Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                                Text="{Binding SelectedResultLastUpdatedText}" />
+                                        </Grid>
+                                    </StackPanel>
+                                </ScrollViewer>
+                                <StackPanel
+                                    Grid.Row="2"
+                                    Orientation="Horizontal"
+                                    Spacing="8">
+                                    <Button
+                                        Command="{Binding OpenSelectedRemoteCommand}"
+                                        Content="Open remote"
+                                        Style="{StaticResource GitPullerChromeButtonStyle}" />
+                                    <Button
+                                        Click="RemovedRepositoriesButton_Click"
+                                        Style="{StaticResource GitPullerChromeButtonStyle}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="Removed" />
+                                            <TextBlock Text="{Binding RemovedRepositoryCount}" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
                         </Border>
                     </Grid>
                 </Grid>
-            </NavigationView.Content>
-        </NavigationView>
+            </Border>
+        </Grid>
+
+        <Border
+            x:Name="FooterStatusBar"
+            Grid.Row="1"
+            Grid.ColumnSpan="2"
+            Padding="16,0"
+            Background="{ThemeResource GitPullerSidebarAltBrush}"
+            BorderBrush="{ThemeResource GitPullerBorderBrush}"
+            BorderThickness="0,1,0,0">
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Ellipse
+                        Width="8"
+                        Height="8"
+                        Fill="{ThemeResource GitPullerUpdatedBrush}" />
+                    <TextBlock
+                        FontSize="12"
+                        Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                        Text="{Binding FooterRunStateText}" />
+                    <TextBlock
+                        FontSize="12"
+                        Foreground="{ThemeResource GitPullerSubtleTextBrush}"
+                        Text="{Binding CurrentProgressMessage}" />
+                </StackPanel>
+                <StackPanel
+                    Grid.Column="1"
+                    Orientation="Horizontal"
+                    Spacing="14"
+                    VerticalAlignment="Center">
+                    <TextBlock FontSize="12" Foreground="{ThemeResource GitPullerSubtleTextBrush}" Text="{Binding FooterSummaryText}" />
+                    <TextBlock FontSize="12" Foreground="{ThemeResource GitPullerUpdatedBrush}" Text="{Binding UpdatedFooterText}" />
+                    <TextBlock FontSize="12" Foreground="{ThemeResource GitPullerCleanBrush}" Text="{Binding CleanFooterText}" />
+                    <TextBlock FontSize="12" Foreground="{ThemeResource GitPullerWarningBrush}" Text="{Binding WarningFooterText}" />
+                    <TextBlock FontSize="12" Foreground="{ThemeResource GitPullerFailedBrush}" Text="{Binding FailedFooterText}" />
+                </StackPanel>
+            </Grid>
+        </Border>
     </Grid>
 </Page>

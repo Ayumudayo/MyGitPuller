@@ -10,8 +10,6 @@ namespace GitPuller_WinUI.Views;
 public sealed partial class MainPage : Page
 {
     private bool suppressFolderTreeSelectionChanged;
-    private readonly long isPaneOpenCallbackToken;
-    private readonly long paneDisplayModeCallbackToken;
 
     public MainShellViewModel ViewModel { get; }
 
@@ -21,32 +19,24 @@ public sealed partial class MainPage : Page
             new DispatcherQueueViewModelDispatcher(DispatcherQueue.GetForCurrentThread()));
 
         InitializeComponent();
-        isPaneOpenCallbackToken = CategoryNavigation.RegisterPropertyChangedCallback(
-            NavigationView.IsPaneOpenProperty,
-            (_, _) => UpdatePaneContentVisibility());
-        paneDisplayModeCallbackToken = CategoryNavigation.RegisterPropertyChangedCallback(
-            NavigationView.PaneDisplayModeProperty,
-            (_, _) => UpdatePaneContentVisibility());
+        DataContext = ViewModel;
 
         Loaded += MainPage_Loaded;
         Unloaded += MainPage_Unloaded;
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
         RebuildFolderTree();
         UpdateRetryButtonVisibility();
-        UpdatePaneContentVisibility();
     }
 
     private async void MainPage_Loaded(object sender, RoutedEventArgs e)
     {
         Loaded -= MainPage_Loaded;
-        UpdatePaneContentVisibility();
         await ViewModel.InitializeAsync();
     }
 
     private void MainPage_Unloaded(object sender, RoutedEventArgs e)
     {
-        CategoryNavigation.UnregisterPropertyChangedCallback(NavigationView.IsPaneOpenProperty, isPaneOpenCallbackToken);
-        CategoryNavigation.UnregisterPropertyChangedCallback(NavigationView.PaneDisplayModeProperty, paneDisplayModeCallbackToken);
+        ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
         Unloaded -= MainPage_Unloaded;
     }
 
@@ -65,7 +55,8 @@ public sealed partial class MainPage : Page
             RebuildFolderTree();
         }
 
-        if (e.PropertyName is nameof(MainShellViewModel.SelectedFolderNode))
+        if (e.PropertyName is nameof(MainShellViewModel.SelectedFolderNode)
+            or nameof(MainShellViewModel.SelectedTreeNode))
         {
             SynchronizeSelectedFolderNode();
         }
@@ -85,25 +76,35 @@ public sealed partial class MainPage : Page
         SecondaryRetrySelectedDetailButton.Visibility = showSecondary ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void UpdatePaneContentVisibility()
-    {
-        if (PaneHeaderHost is null || PaneContentHost is null || CategoryNavigation is null)
-        {
-            return;
-        }
-
-        var shouldShowPaneContent = CategoryNavigation.IsPaneOpen
-            || CategoryNavigation.PaneDisplayMode == NavigationViewPaneDisplayMode.Left;
-        var visibility = shouldShowPaneContent ? Visibility.Visible : Visibility.Collapsed;
-
-        PaneHeaderHost.Visibility = visibility;
-        PaneContentHost.Visibility = visibility;
-    }
-
     private async void AddRepositoryButton_Click(object sender, RoutedEventArgs e)
     {
         ViewModel.BeginAddRepository(ViewModel.RepositoryUrlToAdd, ViewModel.SelectedCategory?.Name);
         await ShowAddRepositoryDialogAsync();
+    }
+
+    private void AllFilterButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.SelectedResultFilter = RepositoryResultFilter.All;
+    }
+
+    private void FailedFilterButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.SelectedResultFilter = RepositoryResultFilter.Failed;
+    }
+
+    private void WarningFilterButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.SelectedResultFilter = RepositoryResultFilter.Warning;
+    }
+
+    private void UpdatedFilterButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.SelectedResultFilter = RepositoryResultFilter.Updated;
+    }
+
+    private void CleanFilterButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.SelectedResultFilter = RepositoryResultFilter.Clean;
     }
 
     private void FolderTreeView_SelectionChanged(TreeView sender, TreeViewSelectionChangedEventArgs args)
@@ -113,7 +114,7 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        ViewModel.SelectedFolderNode = sender.SelectedNode?.Content as RepositoryFolderNodeViewModel;
+        ViewModel.SelectedTreeNode = sender.SelectedNode?.Content as RepositoryTreeNodeViewModel;
     }
 
     private async Task ShowAddRepositoryDialogAsync()
@@ -262,6 +263,291 @@ public sealed partial class MainPage : Page
         }
     }
 
+    private async void AdvancedOptionsButton_Click(object sender, RoutedEventArgs e)
+    {
+        await ShowAdvancedOptionsDialogAsync();
+    }
+
+    private async Task ShowAdvancedOptionsDialogAsync()
+    {
+        var workersBox = new NumberBox
+        {
+            Header = "Workers",
+            Minimum = 1,
+            Maximum = 64,
+            Value = ViewModel.AdvancedWorkers
+        };
+        var timeoutBox = new NumberBox
+        {
+            Header = "Git timeout seconds",
+            Minimum = 1,
+            Maximum = 3600,
+            Value = ViewModel.AdvancedTimeoutSeconds
+        };
+        var staleLockBox = new NumberBox
+        {
+            Header = "Stale lock minutes",
+            Minimum = 1,
+            Maximum = 1440,
+            Value = ViewModel.AdvancedStaleLockMinutes
+        };
+        var syncAllBranchesBox = new CheckBox
+        {
+            Content = "Sync all accessible branches",
+            IsChecked = ViewModel.AdvancedSyncAllBranches
+        };
+        var staleLockCleanupBox = new CheckBox
+        {
+            Content = "Disable stale lock cleanup",
+            IsChecked = ViewModel.AdvancedNoStaleLockCleanup
+        };
+        var verboseReportBox = new CheckBox
+        {
+            Content = "Verbose report",
+            IsChecked = ViewModel.AdvancedVerboseReport
+        };
+        var initMissingSubmodulesBox = new CheckBox
+        {
+            Content = "Initialize missing submodules",
+            IsChecked = ViewModel.AdvancedInitMissingSubmodules
+        };
+        var statusBar = new InfoBar
+        {
+            Severity = InfoBarSeverity.Informational,
+            Title = "Options",
+            IsOpen = ViewModel.HasAdvancedOptionsStatus,
+            Message = ViewModel.AdvancedOptionsStatusMessage
+        };
+        var errorBar = new InfoBar
+        {
+            Severity = InfoBarSeverity.Error,
+            Title = "Save failed",
+            IsOpen = ViewModel.HasAdvancedOptionsError,
+            Message = ViewModel.AdvancedOptionsErrorMessage
+        };
+
+        workersBox.ValueChanged += AdvancedWorkersNumberBox_ValueChanged;
+        timeoutBox.ValueChanged += AdvancedTimeoutNumberBox_ValueChanged;
+        staleLockBox.ValueChanged += AdvancedStaleLockNumberBox_ValueChanged;
+        syncAllBranchesBox.Checked += (_, _) => ViewModel.AdvancedSyncAllBranches = true;
+        syncAllBranchesBox.Unchecked += (_, _) => ViewModel.AdvancedSyncAllBranches = false;
+        staleLockCleanupBox.Checked += (_, _) => ViewModel.AdvancedNoStaleLockCleanup = true;
+        staleLockCleanupBox.Unchecked += (_, _) => ViewModel.AdvancedNoStaleLockCleanup = false;
+        verboseReportBox.Checked += (_, _) => ViewModel.AdvancedVerboseReport = true;
+        verboseReportBox.Unchecked += (_, _) => ViewModel.AdvancedVerboseReport = false;
+        initMissingSubmodulesBox.Checked += (_, _) => ViewModel.AdvancedInitMissingSubmodules = true;
+        initMissingSubmodulesBox.Unchecked += (_, _) => ViewModel.AdvancedInitMissingSubmodules = false;
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Advanced sync options",
+            PrimaryButtonText = "Save defaults",
+            CloseButtonText = "Close",
+            DefaultButton = ContentDialogButton.Primary,
+            Content = new ScrollViewer
+            {
+                MaxHeight = 640,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = new StackPanel
+                {
+                    Spacing = 10,
+                    Children =
+                    {
+                        workersBox,
+                        timeoutBox,
+                        staleLockBox,
+                        syncAllBranchesBox,
+                        staleLockCleanupBox,
+                        verboseReportBox,
+                        initMissingSubmodulesBox,
+                        statusBar,
+                        errorBar
+                    }
+                }
+            }
+        };
+
+        void UpdateDialogState()
+        {
+            dialog.IsPrimaryButtonEnabled = ViewModel.CanSaveAdvancedOptions;
+            statusBar.IsOpen = ViewModel.HasAdvancedOptionsStatus;
+            statusBar.Message = ViewModel.AdvancedOptionsStatusMessage;
+            errorBar.IsOpen = ViewModel.HasAdvancedOptionsError;
+            errorBar.Message = ViewModel.AdvancedOptionsErrorMessage;
+        }
+
+        PropertyChangedEventHandler propertyChanged = (_, args) =>
+        {
+            if (args.PropertyName is nameof(MainShellViewModel.CanSaveAdvancedOptions)
+                or nameof(MainShellViewModel.AdvancedOptionsStatusMessage)
+                or nameof(MainShellViewModel.AdvancedOptionsErrorMessage)
+                or nameof(MainShellViewModel.HasAdvancedOptionsStatus)
+                or nameof(MainShellViewModel.HasAdvancedOptionsError))
+            {
+                UpdateDialogState();
+            }
+        };
+
+        dialog.PrimaryButtonClick += async (_, args) =>
+        {
+            var deferral = args.GetDeferral();
+            try
+            {
+                await ViewModel.SaveAdvancedOptionsAsync();
+                args.Cancel = ViewModel.HasAdvancedOptionsError;
+                UpdateDialogState();
+            }
+            finally
+            {
+                deferral.Complete();
+            }
+        };
+
+        ViewModel.PropertyChanged += propertyChanged;
+        try
+        {
+            UpdateDialogState();
+            await dialog.ShowAsync();
+        }
+        finally
+        {
+            ViewModel.PropertyChanged -= propertyChanged;
+            workersBox.ValueChanged -= AdvancedWorkersNumberBox_ValueChanged;
+            timeoutBox.ValueChanged -= AdvancedTimeoutNumberBox_ValueChanged;
+            staleLockBox.ValueChanged -= AdvancedStaleLockNumberBox_ValueChanged;
+        }
+    }
+
+    private async void RemovedRepositoriesButton_Click(object sender, RoutedEventArgs e)
+    {
+        await ShowRemovedRepositoriesDialogAsync();
+    }
+
+    private async Task ShowRemovedRepositoriesDialogAsync()
+    {
+        var listPanel = new StackPanel
+        {
+            Spacing = 10
+        };
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Removed repositories",
+            CloseButtonText = "Close",
+            Content = new ScrollViewer
+            {
+                MaxHeight = 640,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = listPanel
+            }
+        };
+
+        if (ViewModel.RemovedRepositories.Count == 0)
+        {
+            listPanel.Children.Add(new TextBlock
+            {
+                Text = "No removed repositories are waiting for restore or permanent deletion.",
+                TextWrapping = TextWrapping.WrapWholeWords
+            });
+        }
+        else
+        {
+            foreach (var removedRepository in ViewModel.RemovedRepositories)
+            {
+                listPanel.Children.Add(CreateRemovedRepositoryRow(removedRepository, dialog));
+            }
+        }
+
+        await dialog.ShowAsync();
+    }
+
+    private FrameworkElement CreateRemovedRepositoryRow(
+        RemovedRepositoryViewModel removedRepository,
+        ContentDialog ownerDialog)
+    {
+        var nameText = new TextBlock
+        {
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Text = removedRepository.Name,
+            TextWrapping = TextWrapping.WrapWholeWords
+        };
+        var pathText = new TextBlock
+        {
+            Text = removedRepository.RemovedPath,
+            TextWrapping = TextWrapping.WrapWholeWords
+        };
+        var categoryText = new TextBlock
+        {
+            Text = removedRepository.Record.Category,
+            TextWrapping = TextWrapping.WrapWholeWords
+        };
+        var restoreButton = new Button
+        {
+            Content = "Restore",
+            IsEnabled = removedRepository.CanRestore
+        };
+        var restoreAsButton = new Button
+        {
+            Content = "Restore as"
+        };
+        var openButton = new Button
+        {
+            Content = "Open folder"
+        };
+        var deleteButton = new Button
+        {
+            Content = "Delete"
+        };
+
+        restoreButton.Click += async (_, _) => await ViewModel.RestoreRemovedRepositoryAsync(removedRepository);
+        restoreAsButton.Click += async (_, _) =>
+        {
+            ownerDialog.Hide();
+            await ShowRestoreRemovedRepositoryAsDialogAsync(removedRepository);
+        };
+        openButton.Click += async (_, _) => await ViewModel.OpenRemovedFolderAsync(removedRepository);
+        deleteButton.Click += async (_, _) =>
+        {
+            ownerDialog.Hide();
+            await ConfirmPermanentDeleteRemovedRepositoryAsync(removedRepository);
+        };
+
+        var actionPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Children =
+            {
+                restoreButton,
+                restoreAsButton,
+                openButton,
+                deleteButton
+            }
+        };
+
+        return new Border
+        {
+            Padding = new Thickness(10),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Child = new StackPanel
+            {
+                Spacing = 6,
+                Children =
+                {
+                    nameText,
+                    categoryText,
+                    pathText,
+                    actionPanel
+                }
+            }
+        };
+    }
+
     private void AdvancedWorkersNumberBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
     {
         ViewModel.AdvancedWorkers = NormalizeNumberBoxValue(args.NewValue);
@@ -378,6 +664,11 @@ public sealed partial class MainPage : Page
             return;
         }
 
+        await ConfirmPermanentDeleteRemovedRepositoryAsync(removedRepository);
+    }
+
+    private async Task ConfirmPermanentDeleteRemovedRepositoryAsync(RemovedRepositoryViewModel removedRepository)
+    {
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
@@ -454,7 +745,7 @@ public sealed partial class MainPage : Page
         suppressFolderTreeSelectionChanged = true;
         try
         {
-            FolderTreeView.SelectedNode = FindSelectedTreeNode(ViewModel.SelectedFolderNode);
+            FolderTreeView.SelectedNode = FindSelectedTreeNode(ViewModel.SelectedTreeNode ?? ViewModel.SelectedFolderNode);
         }
         finally
         {
@@ -475,7 +766,8 @@ public sealed partial class MainPage : Page
 
     private static void CollectExpandedFolderNames(TreeViewNode treeNode, ISet<string> expandedFolderNames)
     {
-        if (treeNode.Content is RepositoryFolderNodeViewModel folderNode
+        if (treeNode.Content is RepositoryTreeNodeViewModel folderNode
+            && folderNode.IsFolder
             && treeNode.IsExpanded
             && !folderNode.IsAllRepositories)
         {
@@ -489,7 +781,7 @@ public sealed partial class MainPage : Page
     }
 
     private static TreeViewNode CreateTreeNode(
-        RepositoryFolderNodeViewModel folderNode,
+        RepositoryTreeNodeViewModel folderNode,
         IReadOnlySet<string> expandedFolderNames,
         bool hasPriorExpansionState)
     {
@@ -509,11 +801,11 @@ public sealed partial class MainPage : Page
         return treeNode;
     }
 
-    private TreeViewNode? FindSelectedTreeNode(RepositoryFolderNodeViewModel? selectedFolderNode)
+    private TreeViewNode? FindSelectedTreeNode(RepositoryTreeNodeViewModel? selectedTreeNode)
     {
         foreach (var rootNode in FolderTreeView.RootNodes)
         {
-            var match = FindSelectedTreeNodeRecursive(rootNode, selectedFolderNode);
+            var match = FindSelectedTreeNodeRecursive(rootNode, selectedTreeNode);
             if (match is not null)
             {
                 return match;
@@ -525,19 +817,22 @@ public sealed partial class MainPage : Page
 
     private static TreeViewNode? FindSelectedTreeNodeRecursive(
         TreeViewNode treeNode,
-        RepositoryFolderNodeViewModel? selectedFolderNode)
+        RepositoryTreeNodeViewModel? selectedTreeNode)
     {
-        if (treeNode.Content is RepositoryFolderNodeViewModel folderNode
-            && selectedFolderNode is not null
-            && string.Equals(folderNode.FullCategoryName, selectedFolderNode.FullCategoryName, StringComparison.OrdinalIgnoreCase)
-            && folderNode.IsAllRepositories == selectedFolderNode.IsAllRepositories)
+        if (treeNode.Content is RepositoryTreeNodeViewModel treeNodeViewModel
+            && selectedTreeNode is not null
+            && treeNodeViewModel.Kind == selectedTreeNode.Kind
+            && treeNodeViewModel.IsAllRepositories == selectedTreeNode.IsAllRepositories
+            && (treeNodeViewModel.IsRepository
+                ? string.Equals(treeNodeViewModel.FullPath, selectedTreeNode.FullPath, StringComparison.OrdinalIgnoreCase)
+                : string.Equals(treeNodeViewModel.FullCategoryName, selectedTreeNode.FullCategoryName, StringComparison.OrdinalIgnoreCase)))
         {
             return treeNode;
         }
 
         foreach (var childNode in treeNode.Children)
         {
-            var match = FindSelectedTreeNodeRecursive(childNode, selectedFolderNode);
+            var match = FindSelectedTreeNodeRecursive(childNode, selectedTreeNode);
             if (match is not null)
             {
                 return match;

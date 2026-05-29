@@ -1,9 +1,20 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using GitPuller;
 
 namespace GitPuller_WinUI.ViewModels;
 
 public enum RepositoryResultStatus
 {
+    Failed,
+    Warning,
+    Updated,
+    Clean
+}
+
+public enum RepositoryResultFilter
+{
+    All,
     Failed,
     Warning,
     Updated,
@@ -21,7 +32,8 @@ public sealed class RepositoryResultViewModel
         int newCommitsCount,
         TimeSpan elapsed,
         FailureDiagnostic? diagnostic,
-        IEnumerable<string>? logLines = null)
+        IEnumerable<string>? logLines = null,
+        DateTimeOffset completedAt = default)
     {
         Name = string.IsNullOrWhiteSpace(name) ? "(unnamed repository)" : name;
         Category = string.IsNullOrWhiteSpace(category) ? "(uncategorized)" : category;
@@ -31,6 +43,7 @@ public sealed class RepositoryResultViewModel
         NewCommitsCount = newCommitsCount;
         Elapsed = elapsed;
         Diagnostic = diagnostic;
+        CompletedAt = completedAt;
         LogLines = (logLines ?? Array.Empty<string>())
             .Where(line => !string.IsNullOrWhiteSpace(line))
             .ToArray();
@@ -43,6 +56,7 @@ public sealed class RepositoryResultViewModel
     public RepositoryResultStatus Status { get; }
     public int NewCommitsCount { get; }
     public TimeSpan Elapsed { get; }
+    public DateTimeOffset CompletedAt { get; }
     public FailureDiagnostic? Diagnostic { get; }
     public IReadOnlyList<string> LogLines { get; }
     public RetryActionState RetryActionState => RetryPolicyPresentation.GetRetryActionState(Diagnostic);
@@ -96,6 +110,14 @@ public sealed class RepositoryResultViewModel
     public string ElapsedText => Elapsed.TotalSeconds < 1
         ? "under 1s"
         : $"{Elapsed.TotalSeconds:0.0}s";
+    public string CurrentText => GetFirstCommitHash(LogLines) ?? "-";
+    public string BehindText => NewCommitsCount.ToString(CultureInfo.InvariantCulture);
+    public string AheadText => "0";
+    public string MessageText => Summary;
+    public string LastUpdatedText => CompletedAt == default
+        ? "-"
+        : CompletedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.CurrentCulture);
+    public string SearchText => $"{Name} {Category} {Path} {RemoteUrl} {Summary}";
 
     public string Summary => Status switch
     {
@@ -131,7 +153,22 @@ public sealed class RepositoryResultViewModel
             result.NewCommitsCount,
             result.Elapsed,
             result.Diagnostic,
-            logLines);
+            logLines,
+            result.CompletedAt);
+    }
+
+    private static string? GetFirstCommitHash(IEnumerable<string> logLines)
+    {
+        foreach (var line in logLines)
+        {
+            var match = Regex.Match(line, @"\b[0-9a-fA-F]{7,40}\b");
+            if (match.Success)
+            {
+                return match.Value[..Math.Min(7, match.Value.Length)].ToLowerInvariant();
+            }
+        }
+
+        return null;
     }
 
     private static RepositoryResultStatus GetStatus(RepoResult result)

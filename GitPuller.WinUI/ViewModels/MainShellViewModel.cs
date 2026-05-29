@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Windows.Input;
 using GitPuller;
@@ -20,14 +21,18 @@ public sealed class MainShellViewModel : ObservableObject
     private RepositoryResultViewModel? selectedResult;
     private string selectedResultPath = string.Empty;
     private CategoryNavigationItemViewModel? selectedCategory;
-    private RepositoryFolderNodeViewModel? selectedFolderNode;
+    private RepositoryTreeNodeViewModel? selectedFolderNode;
+    private RepositoryTreeNodeViewModel? selectedTreeNode;
     private CategoryNavigationItemViewModel allRepositoriesNavigationItem;
     private CategoryNavigationItemViewModel? selectedNavigationItem;
+    private RepositoryResultFilter selectedResultFilter;
+    private string repositorySearchText = string.Empty;
     private string repositoryUrlToAdd = string.Empty;
     private string libraryRoot;
     private string? latestReportPath;
     private int runProgressCompleted;
     private int runProgressTotal;
+    private DateTimeOffset lastSyncCompletedAt;
     private string currentProgressMessage = "Ready";
     private string runErrorMessage = string.Empty;
     private GitPullerLibraryLoadResult? currentLibraryLoad;
@@ -93,7 +98,7 @@ public sealed class MainShellViewModel : ObservableObject
         this.dispatcher = dispatcher ?? ImmediateViewModelDispatcher.Instance;
 
         Categories = new ObservableCollection<CategoryNavigationItemViewModel>(categories);
-        RepositoryTreeNodes = new ObservableCollection<RepositoryFolderNodeViewModel>();
+        RepositoryTreeNodes = new ObservableCollection<RepositoryTreeNodeViewModel>();
         RepositoryResults = new ObservableCollection<RepositoryResultViewModel>(repositoryResults);
         RemovedRepositories = new ObservableCollection<RemovedRepositoryViewModel>(removedRepositories);
         allRepositoriesNavigationItem = CreateAllRepositoriesNavigationItem();
@@ -151,7 +156,7 @@ public sealed class MainShellViewModel : ObservableObject
     }
 
     public ObservableCollection<CategoryNavigationItemViewModel> Categories { get; }
-    public ObservableCollection<RepositoryFolderNodeViewModel> RepositoryTreeNodes { get; }
+    public ObservableCollection<RepositoryTreeNodeViewModel> RepositoryTreeNodes { get; }
     public ObservableCollection<RepositoryResultViewModel> RepositoryResults { get; }
     public ObservableCollection<RemovedRepositoryViewModel> RemovedRepositories { get; }
     public ICommand AddRepositoryCommand { get; }
@@ -184,6 +189,8 @@ public sealed class MainShellViewModel : ObservableObject
                 OnPropertyChanged(nameof(RunSyncButtonText));
                 OnPropertyChanged(nameof(RunStatusTitle));
                 OnPropertyChanged(nameof(IsRunProgressIndeterminate));
+                OnPropertyChanged(nameof(RunCompletionStatusText));
+                OnPropertyChanged(nameof(FooterRunStateText));
                 OnPropertyChanged(nameof(CanAddRepositoryFromUrl));
                 OnPropertyChanged(nameof(CanCloneRepository));
                 OnPropertyChanged(nameof(CanSaveAdvancedOptions));
@@ -274,10 +281,41 @@ public sealed class MainShellViewModel : ObservableObject
         set => SetSelectedNavigationItem(value, updateCategory: true);
     }
 
-    public RepositoryFolderNodeViewModel? SelectedFolderNode
+    public RepositoryTreeNodeViewModel? SelectedFolderNode
     {
         get => selectedFolderNode;
         set => SetSelectedFolderNode(value);
+    }
+
+    public RepositoryTreeNodeViewModel? SelectedTreeNode
+    {
+        get => selectedTreeNode;
+        set => SetSelectedTreeNode(value);
+    }
+
+    public RepositoryResultFilter SelectedResultFilter
+    {
+        get => selectedResultFilter;
+        set
+        {
+            if (SetProperty(ref selectedResultFilter, value))
+            {
+                RaiseResultFilterDerivedPropertiesChanged();
+            }
+        }
+    }
+
+    public string RepositorySearchText
+    {
+        get => repositorySearchText;
+        set
+        {
+            var normalizedValue = value ?? string.Empty;
+            if (SetProperty(ref repositorySearchText, normalizedValue))
+            {
+                RaiseResultFilterDerivedPropertiesChanged();
+            }
+        }
     }
 
     public string RepositoryUrlToAdd
@@ -470,8 +508,9 @@ public sealed class MainShellViewModel : ObservableObject
 
     public IReadOnlyList<RepositoryResultViewModel> VisibleResults => RepositoryResults
         .Where(ResultMatchesSelectedFolder)
-        .Where(result => ShowCleanRepositories || result.Status != RepositoryResultStatus.Clean)
-        .OrderBy(result => result.Status)
+        .Where(ResultMatchesSelectedStatusFilter)
+        .Where(ResultMatchesRepositorySearchText)
+        .OrderBy(result => GetStatusSortOrder(result.Status))
         .ThenBy(result => result.Name, StringComparer.OrdinalIgnoreCase)
         .ToArray();
 
@@ -498,11 +537,48 @@ public sealed class MainShellViewModel : ObservableObject
     public bool HasAttentionItems => FailedCount > 0 || WarningCount > 0;
     public string AttentionSummary => $"{FailedCount} failed, {WarningCount} warning, {UpdatedCount} updated, {CleanCount} clean.";
     public string ResultSummary => $"{VisibleResultCount} of {TotalResultCount} repositories shown";
+    public string AllFilterText => $"All {TotalResultCount}";
+    public string FailedFilterText => $"Failed {FailedCount}";
+    public string WarningFilterText => $"Warning {WarningCount}";
+    public string UpdatedFilterText => $"Updated {UpdatedCount}";
+    public string CleanFilterText => $"Clean {CleanCount}";
+    public bool IsAllFilterSelected => SelectedResultFilter == RepositoryResultFilter.All;
+    public bool IsFailedFilterSelected => SelectedResultFilter == RepositoryResultFilter.Failed;
+    public bool IsWarningFilterSelected => SelectedResultFilter == RepositoryResultFilter.Warning;
+    public bool IsUpdatedFilterSelected => SelectedResultFilter == RepositoryResultFilter.Updated;
+    public bool IsCleanFilterSelected => SelectedResultFilter == RepositoryResultFilter.Clean;
+    public string LastSyncCompletedText => lastSyncCompletedAt == default
+        ? "-"
+        : lastSyncCompletedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.CurrentCulture);
+    public string RunCompletionStatusText => HasRunError
+        ? "Failed"
+        : IsRunning
+            ? "Running"
+            : lastSyncCompletedAt == default
+                ? "Ready"
+                : "Completed";
+    public string FooterSummaryText => TotalResultCount == 1
+        ? "1 repository"
+        : $"{TotalResultCount} repositories";
+    public string UpdatedFooterText => $"{UpdatedCount} updated";
+    public string CleanFooterText => $"{CleanCount} clean";
+    public string WarningFooterText => $"{WarningCount} warning";
+    public string FailedFooterText => $"{FailedCount} failed";
+    public string FooterRunStateText => HasRunError
+        ? "Needs review"
+        : IsRunning
+            ? RunProgressText
+            : HasAttentionItems
+                ? "Review required"
+                : "All up to date";
     public string SelectedResultName => SelectedResult?.Name ?? "No repository selected";
     public string SelectedResultStatus => SelectedResult?.StatusText ?? string.Empty;
     public string SelectedResultCategory => SelectedResult?.Category ?? string.Empty;
     public string SelectedResultPath => SelectedResult?.Path ?? string.Empty;
     public string SelectedResultRemoteUrl => SelectedResult?.RemoteUrl ?? string.Empty;
+    public string SelectedResultCurrentText => SelectedResult?.CurrentText ?? "-";
+    public string SelectedResultLastUpdatedText => SelectedResult?.LastUpdatedText ?? "-";
+    public string SelectedResultTrackingText => "origin/main";
     public string SelectedResultSummary => SelectedResult?.Summary ?? "Select a repository to review its result.";
     public string SelectedResultDiagnosticTitle => SelectedResult?.DiagnosticTitle ?? "No diagnostic selected";
     public string SelectedResultDiagnosticExplanation => SelectedResult?.DiagnosticExplanation ?? string.Empty;
@@ -1493,6 +1569,9 @@ public sealed class MainShellViewModel : ObservableObject
         }
 
         SetLatestReportPath(runResult.LatestReportPath);
+        lastSyncCompletedAt = runResult.CompletedAt == default ? DateTimeOffset.Now : runResult.CompletedAt;
+        OnPropertyChanged(nameof(LastSyncCompletedText));
+        OnPropertyChanged(nameof(RunCompletionStatusText));
 
         if (!string.IsNullOrWhiteSpace(runResult.ErrorMessage))
         {
@@ -1682,6 +1761,8 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(HasRunInfoStatus));
         OnPropertyChanged(nameof(RunStatusMessage));
         OnPropertyChanged(nameof(RunStatusTitle));
+        OnPropertyChanged(nameof(RunCompletionStatusText));
+        OnPropertyChanged(nameof(FooterRunStateText));
     }
 
     private void SetRunError(string message)
@@ -1695,6 +1776,8 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(HasRunInfoStatus));
         OnPropertyChanged(nameof(RunStatusMessage));
         OnPropertyChanged(nameof(RunStatusTitle));
+        OnPropertyChanged(nameof(RunCompletionStatusText));
+        OnPropertyChanged(nameof(FooterRunStateText));
     }
 
     private void ClearRunError()
@@ -1711,6 +1794,8 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(HasRunInfoStatus));
         OnPropertyChanged(nameof(RunStatusMessage));
         OnPropertyChanged(nameof(RunStatusTitle));
+        OnPropertyChanged(nameof(RunCompletionStatusText));
+        OnPropertyChanged(nameof(FooterRunStateText));
     }
 
     private void SetSelectedCategory(CategoryNavigationItemViewModel? value, bool updateNavigation)
@@ -1752,17 +1837,60 @@ public sealed class MainShellViewModel : ObservableObject
         }
     }
 
-    private void SetSelectedFolderNode(RepositoryFolderNodeViewModel? value)
+    private void SetSelectedTreeNode(RepositoryTreeNodeViewModel? value)
+    {
+        var normalizedValue = NormalizeSelectedTreeNode(value);
+        if (SetProperty(ref selectedTreeNode, normalizedValue, nameof(SelectedTreeNode)))
+        {
+            if (normalizedValue?.IsRepository == true)
+            {
+                SelectRepositoryTreeNode(normalizedValue);
+            }
+            else
+            {
+                SetSelectedFolderNode(normalizedValue);
+            }
+        }
+    }
+
+    public void SelectRepositoryTreeNode(RepositoryTreeNodeViewModel? node)
+    {
+        if (node?.IsRepository != true)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(selectedTreeNode, node))
+        {
+            selectedTreeNode = node;
+            OnPropertyChanged(nameof(SelectedTreeNode));
+        }
+
+        var result = node.RepositoryResult
+            ?? RepositoryResults.FirstOrDefault(candidate => PathsEqual(candidate.Path, node.FullPath));
+        if (result is not null)
+        {
+            SelectedResult = result;
+        }
+    }
+
+    private void SetSelectedFolderNode(RepositoryTreeNodeViewModel? value)
     {
         var normalizedValue = NormalizeSelectedFolderNode(value);
         if (SetProperty(ref selectedFolderNode, normalizedValue, nameof(SelectedFolderNode)))
         {
+            if (normalizedValue is not null && !ReferenceEquals(selectedTreeNode, normalizedValue))
+            {
+                selectedTreeNode = normalizedValue;
+                OnPropertyChanged(nameof(SelectedTreeNode));
+            }
+
             UpdateSelectedCategoryFromFolderNode(normalizedValue);
             RaiseFolderSelectionDerivedPropertiesChanged();
         }
     }
 
-    private void UpdateSelectedCategoryFromFolderNode(RepositoryFolderNodeViewModel? folderNode)
+    private void UpdateSelectedCategoryFromFolderNode(RepositoryTreeNodeViewModel? folderNode)
     {
         if (folderNode is null || folderNode.IsAllRepositories)
         {
@@ -1921,6 +2049,7 @@ public sealed class MainShellViewModel : ObservableObject
     private void RefreshRepositoryTreeNodes()
     {
         var selectedFolderCategoryName = SelectedFolderNode?.FullCategoryName;
+        var selectedTreeNodePath = SelectedTreeNode?.IsRepository == true ? SelectedTreeNode.FullPath : null;
         var treeNodes = BuildRepositoryTreeNodes();
 
         RepositoryTreeNodes.Clear();
@@ -1931,20 +2060,62 @@ public sealed class MainShellViewModel : ObservableObject
 
         OnPropertyChanged(nameof(RepositoryTreeNodes));
         SetSelectedFolderNode(FindFolderNodeByFullCategoryName(selectedFolderCategoryName) ?? RepositoryTreeNodes.FirstOrDefault());
+        if (!string.IsNullOrWhiteSpace(selectedTreeNodePath))
+        {
+            selectedTreeNode = FindRepositoryNodeByPath(selectedTreeNodePath) ?? SelectedFolderNode;
+            OnPropertyChanged(nameof(SelectedTreeNode));
+        }
     }
 
-    private RepositoryFolderNodeViewModel[] BuildRepositoryTreeNodes()
+    private IReadOnlyList<RepositoryTreeLeafSource> GetRepositoryTreeLeaves()
+    {
+        var leaves = new List<RepositoryTreeLeafSource>();
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (currentLibraryLoad is not null)
+        {
+            foreach (var repository in currentLibraryLoad.Inventory.Repositories)
+            {
+                var result = RepositoryResults.FirstOrDefault(candidate => PathsEqual(candidate.Path, repository.Path));
+                leaves.Add(new RepositoryTreeLeafSource(
+                    repository.Name,
+                    NormalizeCategoryName(repository.Category),
+                    repository.Path,
+                    result));
+                seenPaths.Add(NormalizePathForComparison(repository.Path));
+            }
+        }
+
+        foreach (var result in RepositoryResults)
+        {
+            var normalizedPath = NormalizePathForComparison(result.Path);
+            if (seenPaths.Add(normalizedPath))
+            {
+                leaves.Add(new RepositoryTreeLeafSource(
+                    result.Name,
+                    NormalizeCategoryName(result.Category),
+                    result.Path,
+                    result));
+            }
+        }
+
+        return leaves
+            .OrderBy(leaf => leaf.Category, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(leaf => leaf.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private RepositoryTreeNodeViewModel[] BuildRepositoryTreeNodes()
     {
         var availableCategoryNames = GetAvailableCategoryNames();
-        var repositoryCategoryNames = currentLibraryLoad is not null
-            ? currentLibraryLoad.Inventory.Repositories
-                .Select(repository => NormalizeCategoryName(repository.Category))
-                .ToArray()
-            : RepositoryResults
-                .Select(result => NormalizeCategoryName(result.Category))
-                .ToArray();
+        var repositoryLeaves = GetRepositoryTreeLeaves();
+        var repositoryCategoryNames = repositoryLeaves
+            .Select(repository => NormalizeCategoryName(repository.Category))
+            .ToArray();
 
-        var attentionCategoryNames = RepositoryResults
+        var attentionCategoryNames = repositoryLeaves
+            .Select(repository => repository.Result)
+            .OfType<RepositoryResultViewModel>()
             .Where(RequiresAttention)
             .Select(result => NormalizeCategoryName(result.Category))
             .ToArray();
@@ -1959,6 +2130,7 @@ public sealed class MainShellViewModel : ObservableObject
 
         foreach (var categoryName in repositoryCategoryNames)
         {
+            AddCategoryPath(categoryName, lookup, rootNodes);
             foreach (var path in EnumerateCategoryPath(categoryName))
             {
                 if (lookup.TryGetValue(path, out var node))
@@ -1979,11 +2151,21 @@ public sealed class MainShellViewModel : ObservableObject
             }
         }
 
-        var allRepositoriesNode = new RepositoryFolderNodeViewModel(
+        foreach (var repository in repositoryLeaves)
+        {
+            var categoryName = NormalizeCategoryName(repository.Category);
+            if (lookup.TryGetValue(categoryName, out var node))
+            {
+                node.Repositories.Add(repository);
+            }
+        }
+
+        var allRepositoriesNode = new RepositoryTreeNodeViewModel(
+            RepositoryTreeNodeKind.Folder,
             "All repositories",
             string.Empty,
             LibraryRoot,
-            repositoryCategoryNames.Length,
+            repositoryLeaves.Count,
             attentionCategoryNames.Length,
             isAllRepositories: true);
 
@@ -2027,18 +2209,43 @@ public sealed class MainShellViewModel : ObservableObject
         }
     }
 
-    private RepositoryFolderNodeViewModel BuildRepositoryTreeNode(RepositoryFolderNodeBuilder builder)
+    private RepositoryTreeNodeViewModel BuildRepositoryTreeNode(RepositoryFolderNodeBuilder builder)
     {
-        return new RepositoryFolderNodeViewModel(
+        var childFolders = builder.Children
+            .OrderBy(child => child.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(BuildRepositoryTreeNode);
+        var repositoryLeaves = builder.Repositories
+            .OrderBy(repository => repository.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(repository => new RepositoryTreeNodeViewModel(
+                RepositoryTreeNodeKind.Repository,
+                repository.Name,
+                repository.Category,
+                repository.Path,
+                repositoryCount: 1,
+                attentionCount: repository.Result is not null && RequiresAttention(repository.Result) ? 1 : 0,
+                repositoryResult: repository.Result));
+
+        return new RepositoryTreeNodeViewModel(
+            RepositoryTreeNodeKind.Folder,
             builder.Name,
             builder.FullCategoryName,
             builder.FullPath,
             builder.RepositoryCount,
             builder.AttentionCount,
-            children: builder.Children.Select(BuildRepositoryTreeNode));
+            children: childFolders.Concat(repositoryLeaves));
     }
 
-    private RepositoryFolderNodeViewModel? NormalizeSelectedFolderNode(RepositoryFolderNodeViewModel? value)
+    private RepositoryTreeNodeViewModel? NormalizeSelectedTreeNode(RepositoryTreeNodeViewModel? value)
+    {
+        if (value?.IsRepository == true)
+        {
+            return FindRepositoryNodeByPath(value.FullPath) ?? value;
+        }
+
+        return NormalizeSelectedFolderNode(value);
+    }
+
+    private RepositoryTreeNodeViewModel? NormalizeSelectedFolderNode(RepositoryTreeNodeViewModel? value)
     {
         if (RepositoryTreeNodes.Count == 0)
         {
@@ -2053,7 +2260,7 @@ public sealed class MainShellViewModel : ObservableObject
         return FindFolderNodeByFullCategoryName(value.FullCategoryName) ?? RepositoryTreeNodes.FirstOrDefault();
     }
 
-    private RepositoryFolderNodeViewModel? FindFolderNodeByFullCategoryName(string? fullCategoryName)
+    private RepositoryTreeNodeViewModel? FindFolderNodeByFullCategoryName(string? fullCategoryName)
     {
         foreach (var rootNode in RepositoryTreeNodes)
         {
@@ -2067,12 +2274,14 @@ public sealed class MainShellViewModel : ObservableObject
         return null;
     }
 
-    private static RepositoryFolderNodeViewModel? FindFolderNodeRecursive(
-        RepositoryFolderNodeViewModel node,
+    private static RepositoryTreeNodeViewModel? FindFolderNodeRecursive(
+        RepositoryTreeNodeViewModel node,
         string? fullCategoryName)
     {
-        if (string.Equals(node.FullCategoryName, fullCategoryName, StringComparison.OrdinalIgnoreCase)
+        if (node.IsFolder
+            && (string.Equals(node.FullCategoryName, fullCategoryName, StringComparison.OrdinalIgnoreCase)
             || (node.IsAllRepositories && string.IsNullOrWhiteSpace(fullCategoryName)))
+           )
         {
             return node;
         }
@@ -2080,6 +2289,46 @@ public sealed class MainShellViewModel : ObservableObject
         foreach (var child in node.Children)
         {
             var match = FindFolderNodeRecursive(child, fullCategoryName);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private RepositoryTreeNodeViewModel? FindRepositoryNodeByPath(string? repositoryPath)
+    {
+        if (string.IsNullOrWhiteSpace(repositoryPath))
+        {
+            return null;
+        }
+
+        foreach (var rootNode in RepositoryTreeNodes)
+        {
+            var match = FindRepositoryNodeByPathRecursive(rootNode, repositoryPath);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static RepositoryTreeNodeViewModel? FindRepositoryNodeByPathRecursive(
+        RepositoryTreeNodeViewModel node,
+        string repositoryPath)
+    {
+        if (node.IsRepository && PathsEqual(node.FullPath, repositoryPath))
+        {
+            return node;
+        }
+
+        foreach (var child in node.Children)
+        {
+            var match = FindRepositoryNodeByPathRecursive(child, repositoryPath);
             if (match is not null)
             {
                 return match;
@@ -2099,6 +2348,35 @@ public sealed class MainShellViewModel : ObservableObject
         var categoryName = NormalizeCategoryName(result.Category);
         return string.Equals(categoryName, SelectedFolderNode.FullCategoryName, StringComparison.OrdinalIgnoreCase)
             || categoryName.StartsWith($"{SelectedFolderNode.FullCategoryName}/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool ResultMatchesSelectedStatusFilter(RepositoryResultViewModel result)
+    {
+        return SelectedResultFilter switch
+        {
+            RepositoryResultFilter.Failed => result.Status == RepositoryResultStatus.Failed,
+            RepositoryResultFilter.Warning => result.Status == RepositoryResultStatus.Warning,
+            RepositoryResultFilter.Updated => result.Status == RepositoryResultStatus.Updated,
+            RepositoryResultFilter.Clean => result.Status == RepositoryResultStatus.Clean,
+            _ => true
+        };
+    }
+
+    private bool ResultMatchesRepositorySearchText(RepositoryResultViewModel result)
+    {
+        return string.IsNullOrWhiteSpace(RepositorySearchText)
+            || result.SearchText.Contains(RepositorySearchText.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int GetStatusSortOrder(RepositoryResultStatus status)
+    {
+        return status switch
+        {
+            RepositoryResultStatus.Failed => 0,
+            RepositoryResultStatus.Warning => 1,
+            RepositoryResultStatus.Updated => 2,
+            _ => 3
+        };
     }
 
     private static bool RequiresAttention(RepositoryResultViewModel result)
@@ -2136,6 +2414,19 @@ public sealed class MainShellViewModel : ObservableObject
         EnsureSelectedResultIsVisible();
     }
 
+    private void RaiseResultFilterDerivedPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(VisibleResults));
+        OnPropertyChanged(nameof(VisibleResultCount));
+        OnPropertyChanged(nameof(ResultSummary));
+        OnPropertyChanged(nameof(IsAllFilterSelected));
+        OnPropertyChanged(nameof(IsFailedFilterSelected));
+        OnPropertyChanged(nameof(IsWarningFilterSelected));
+        OnPropertyChanged(nameof(IsUpdatedFilterSelected));
+        OnPropertyChanged(nameof(IsCleanFilterSelected));
+        EnsureSelectedResultIsVisible();
+    }
+
     private void RaiseResultDerivedPropertiesChanged()
     {
         OnPropertyChanged(nameof(VisibleResults));
@@ -2148,6 +2439,17 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(HasAttentionItems));
         OnPropertyChanged(nameof(AttentionSummary));
         OnPropertyChanged(nameof(ResultSummary));
+        OnPropertyChanged(nameof(AllFilterText));
+        OnPropertyChanged(nameof(FailedFilterText));
+        OnPropertyChanged(nameof(WarningFilterText));
+        OnPropertyChanged(nameof(UpdatedFilterText));
+        OnPropertyChanged(nameof(CleanFilterText));
+        OnPropertyChanged(nameof(FooterSummaryText));
+        OnPropertyChanged(nameof(UpdatedFooterText));
+        OnPropertyChanged(nameof(CleanFooterText));
+        OnPropertyChanged(nameof(WarningFooterText));
+        OnPropertyChanged(nameof(FailedFooterText));
+        OnPropertyChanged(nameof(FooterRunStateText));
     }
 
     private void RaiseSelectedResultPropertiesChanged()
@@ -2157,6 +2459,9 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedResultCategory));
         OnPropertyChanged(nameof(SelectedResultPath));
         OnPropertyChanged(nameof(SelectedResultRemoteUrl));
+        OnPropertyChanged(nameof(SelectedResultCurrentText));
+        OnPropertyChanged(nameof(SelectedResultLastUpdatedText));
+        OnPropertyChanged(nameof(SelectedResultTrackingText));
         OnPropertyChanged(nameof(SelectedResultSummary));
         OnPropertyChanged(nameof(SelectedResultDiagnosticTitle));
         OnPropertyChanged(nameof(SelectedResultDiagnosticExplanation));
@@ -2241,7 +2546,14 @@ internal sealed class RepositoryFolderNodeBuilder
     public int RepositoryCount { get; set; }
     public int AttentionCount { get; set; }
     public List<RepositoryFolderNodeBuilder> Children { get; } = [];
+    public List<RepositoryTreeLeafSource> Repositories { get; } = [];
 }
+
+internal sealed record RepositoryTreeLeafSource(
+    string Name,
+    string Category,
+    string Path,
+    RepositoryResultViewModel? Result);
 
 public interface IViewModelDispatcher
 {
