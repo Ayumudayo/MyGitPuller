@@ -225,16 +225,51 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         ArgumentNullException.ThrowIfNull(removedRepository);
 
         var config = await configStore.LoadAsync(libraryRoot, cancellationToken).ConfigureAwait(false);
-        await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
         var removedPath = removalService.PreparePermanentDelete(config, removedRepository);
+        await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
+
         if (Directory.Exists(removedPath))
         {
-            removedRepositoryDirectoryDeleter.Delete(removedPath);
+            try
+            {
+                removedRepositoryDirectoryDeleter.Delete(removedPath);
+            }
+            catch (Exception deleteException)
+            {
+                var rollbackException = await TryRestorePermanentDeleteMetadataAsync(
+                    config,
+                    removedRepository).ConfigureAwait(false);
+                if (rollbackException is null)
+                {
+                    throw new InvalidOperationException(
+                        "Permanent delete failed after metadata was saved; removed repository metadata was restored.",
+                        deleteException);
+                }
+
+                throw new InvalidOperationException(
+                    "Permanent delete failed after metadata was saved, and metadata rollback also failed.",
+                    new AggregateException(deleteException, rollbackException));
+            }
         }
 
-        await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
         var savedConfig = await configStore.LoadAsync(config.LibraryRoot, cancellationToken).ConfigureAwait(false);
         return CreateLoadResult(savedConfig);
+    }
+
+    private async Task<Exception?> TryRestorePermanentDeleteMetadataAsync(
+        LibraryConfig config,
+        RemovedRepositoryRecord removedRepository)
+    {
+        try
+        {
+            AddRemovedRepositoryMetadata(config, removedRepository);
+            await configStore.SaveAsync(config, CancellationToken.None).ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
     }
 
     private GitPullerLibraryLoadResult CreateLoadResult(LibraryConfig config)
@@ -264,6 +299,28 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
             && !config.Categories.Contains(repository.Category, StringComparer.OrdinalIgnoreCase))
         {
             config.Categories.Add(repository.Category);
+        }
+    }
+
+    private static void AddRemovedRepositoryMetadata(LibraryConfig config, RemovedRepositoryRecord removedRepository)
+    {
+        EnsureMutableCollections(config);
+        config.RemovedRepositories.RemoveAll(existing =>
+            PathsEqual(existing.RemovedPath, removedRepository.RemovedPath));
+        config.RemovedRepositories.Add(new RemovedRepositoryRecord
+        {
+            Name = removedRepository.Name,
+            OriginalPath = removedRepository.OriginalPath,
+            RemovedPath = removedRepository.RemovedPath,
+            Category = removedRepository.Category,
+            RemoteUrl = removedRepository.RemoteUrl,
+            RemovedAt = removedRepository.RemovedAt
+        });
+
+        if (!string.IsNullOrWhiteSpace(removedRepository.Category)
+            && !config.Categories.Contains(removedRepository.Category, StringComparer.OrdinalIgnoreCase))
+        {
+            config.Categories.Add(removedRepository.Category);
         }
     }
 
