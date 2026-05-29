@@ -20,6 +20,7 @@ public sealed class MainShellViewModel : ObservableObject
     private bool isRepositoryManagementBusy;
     private bool hasInitialized;
     private RepositoryResultViewModel? selectedResult;
+    private IReadOnlyList<RepositoryResultViewModel>? visibleResultsCache;
     private string selectedResultPath = string.Empty;
     private CategoryNavigationItemViewModel? selectedCategory;
     private RepositoryTreeNodeViewModel? selectedFolderNode;
@@ -256,9 +257,7 @@ public sealed class MainShellViewModel : ObservableObject
         {
             if (SetProperty(ref showCleanRepositories, value))
             {
-                OnPropertyChanged(nameof(VisibleResults));
-                OnPropertyChanged(nameof(VisibleResultCount));
-                OnPropertyChanged(nameof(ResultSummary));
+                InvalidateVisibleResults();
                 EnsureSelectedResultIsVisible();
             }
         }
@@ -525,13 +524,13 @@ public sealed class MainShellViewModel : ObservableObject
         && !string.IsNullOrWhiteSpace(OpenableLatestReportPath)
         && File.Exists(OpenableLatestReportPath);
 
-    public IReadOnlyList<RepositoryResultViewModel> VisibleResults => RepositoryResults
-        .Where(ResultMatchesSelectedFolder)
-        .Where(ResultMatchesSelectedStatusFilter)
-        .Where(ResultMatchesRepositorySearchText)
-        .OrderBy(result => GetStatusSortOrder(result.Status))
-        .ThenBy(result => result.Name, StringComparer.OrdinalIgnoreCase)
-        .ToArray();
+    public IReadOnlyList<RepositoryResultViewModel> VisibleResults => visibleResultsCache ??= RepositoryResults
+            .Where(ResultMatchesSelectedFolder)
+            .Where(ResultMatchesSelectedStatusFilter)
+            .Where(ResultMatchesRepositorySearchText)
+            .OrderBy(result => GetStatusSortOrder(result.Status))
+            .ThenBy(result => result.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
     public string SelectedCategoryName => SelectedFolderNode?.IsAllRepositories == false
         ? SelectedFolderNode.FullCategoryName
@@ -2587,9 +2586,7 @@ public sealed class MainShellViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(CanAddRepositoryFromUrl));
         OnPropertyChanged(nameof(SelectedCategoryName));
-        OnPropertyChanged(nameof(VisibleResults));
-        OnPropertyChanged(nameof(VisibleResultCount));
-        OnPropertyChanged(nameof(ResultSummary));
+        InvalidateVisibleResults();
         RaiseCommandCanExecuteChanged();
         EnsureSelectedResultIsVisible();
     }
@@ -2597,17 +2594,13 @@ public sealed class MainShellViewModel : ObservableObject
     private void RaiseFolderSelectionDerivedPropertiesChanged()
     {
         OnPropertyChanged(nameof(SelectedCategoryName));
-        OnPropertyChanged(nameof(VisibleResults));
-        OnPropertyChanged(nameof(VisibleResultCount));
-        OnPropertyChanged(nameof(ResultSummary));
+        InvalidateVisibleResults();
         EnsureSelectedResultIsVisible();
     }
 
     private void RaiseResultFilterDerivedPropertiesChanged()
     {
-        OnPropertyChanged(nameof(VisibleResults));
-        OnPropertyChanged(nameof(VisibleResultCount));
-        OnPropertyChanged(nameof(ResultSummary));
+        InvalidateVisibleResults();
         OnPropertyChanged(nameof(IsAllFilterSelected));
         OnPropertyChanged(nameof(IsFailedFilterSelected));
         OnPropertyChanged(nameof(IsWarningFilterSelected));
@@ -2618,7 +2611,7 @@ public sealed class MainShellViewModel : ObservableObject
 
     private void RaiseResultDerivedPropertiesChanged()
     {
-        OnPropertyChanged(nameof(VisibleResults));
+        InvalidateVisibleResults();
         OnPropertyChanged(nameof(FailedCount));
         OnPropertyChanged(nameof(WarningCount));
         OnPropertyChanged(nameof(UpdatedCount));
@@ -2639,6 +2632,14 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(WarningFooterText));
         OnPropertyChanged(nameof(FailedFooterText));
         OnPropertyChanged(nameof(FooterRunStateText));
+    }
+
+    private void InvalidateVisibleResults()
+    {
+        visibleResultsCache = null;
+        OnPropertyChanged(nameof(VisibleResults));
+        OnPropertyChanged(nameof(VisibleResultCount));
+        OnPropertyChanged(nameof(ResultSummary));
     }
 
     private void RaiseSelectedResultPropertiesChanged()

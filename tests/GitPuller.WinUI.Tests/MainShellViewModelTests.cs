@@ -77,6 +77,39 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public void VisibleResults_ReusesCachedProjectionUntilFiltersOrResultsChange()
+    {
+        var viewModel = CreateViewModel(
+            Result("failed", RepositoryResultStatus.Failed),
+            Result("updated", RepositoryResultStatus.Updated));
+
+        var firstProjection = viewModel.VisibleResults;
+        var secondProjection = viewModel.VisibleResults;
+
+        Assert.Same(firstProjection, secondProjection);
+
+        viewModel.SelectedResultFilter = RepositoryResultFilter.Updated;
+        var afterFilterProjection = viewModel.VisibleResults;
+
+        Assert.NotSame(firstProjection, afterFilterProjection);
+        Assert.Equal(["updated"], afterFilterProjection.Select(result => result.Name).ToArray());
+
+        viewModel.RepositoryResults.Add(Result("another-updated", RepositoryResultStatus.Updated));
+        var afterMutationProjection = viewModel.VisibleResults;
+
+        Assert.NotSame(afterFilterProjection, afterMutationProjection);
+        Assert.Equal(["another-updated", "updated"], afterMutationProjection.Select(result => result.Name).ToArray());
+
+        viewModel.RepositoryResults[0] = Result("replacement-updated", RepositoryResultStatus.Updated);
+        var afterReplacementProjection = viewModel.VisibleResults;
+
+        Assert.NotSame(afterMutationProjection, afterReplacementProjection);
+        Assert.Equal(
+            ["another-updated", "replacement-updated", "updated"],
+            afterReplacementProjection.Select(result => result.Name).ToArray());
+    }
+
+    [Fact]
     public void RepositoryResult_ExposesRetryButtonStateFromRetryPolicy()
     {
         var retryable = Result(
