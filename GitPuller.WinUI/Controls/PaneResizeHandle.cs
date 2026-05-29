@@ -10,7 +10,7 @@ public sealed class PaneResizeHandle : Control
 
     public PaneResizeHandle()
     {
-        Opacity = 0.20;
+        Opacity = 0.35;
         PointerEntered += PaneResizeHandle_PointerEntered;
         PointerExited += PaneResizeHandle_PointerExited;
         PointerCaptureLost += PaneResizeHandle_PointerCaptureLost;
@@ -24,30 +24,30 @@ public sealed class PaneResizeHandle : Control
     {
         pointerInside = true;
         ProtectedCursor = InputSystemCursor.Create(CursorShape);
-        Opacity = 0.65;
+        Opacity = 0.70;
     }
 
     private void PaneResizeHandle_PointerExited(object sender, PointerRoutedEventArgs e)
     {
         pointerInside = false;
         ProtectedCursor = null;
-        Opacity = 0.20;
+        Opacity = 0.35;
     }
 
     private void PaneResizeHandle_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
         ProtectedCursor = null;
-        Opacity = pointerInside ? 0.65 : 0.20;
+        Opacity = pointerInside ? 0.70 : 0.35;
     }
 
     private void PaneResizeHandle_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         ProtectedCursor = InputSystemCursor.Create(CursorShape);
-        Opacity = 0.85;
+        Opacity = 0.90;
     }
 
     private void PaneResizeHandle_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
-        Opacity = pointerInside ? 0.65 : 0.20;
+        Opacity = pointerInside ? 0.70 : 0.35;
     }
 }

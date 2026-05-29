@@ -227,11 +227,28 @@ public sealed class MainShellViewModelTests
         var handleCode = ReadRepositoryFile("GitPuller.WinUI", "Controls", "PaneResizeHandle.cs");
         Assert.Contains("ProtectedCursor", handleCode, StringComparison.Ordinal);
         Assert.Contains("InputSystemCursorShape.SizeWestEast", handleCode, StringComparison.Ordinal);
-        Assert.Contains("Opacity = 0.20", handleCode, StringComparison.Ordinal);
-        Assert.Contains("Opacity = 0.65", handleCode, StringComparison.Ordinal);
+        Assert.Contains("Opacity = 0.35", handleCode, StringComparison.Ordinal);
+        Assert.Contains("Opacity = 0.70", handleCode, StringComparison.Ordinal);
         Assert.Contains("ResizeSidebar", codeBehind, StringComparison.Ordinal);
         Assert.Contains("ResizeDetails", codeBehind, StringComparison.Ordinal);
         Assert.Contains("ResizeDetailsColumns", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResizeHandles_UseHairlineVisualInsideLargerHitTarget()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+
+        Assert.Contains("x:Key=\"VerticalPaneResizeHandleStyle\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Key=\"HorizontalPaneResizeHandleStyle\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Background=\"Transparent\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Width=\"1\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Height=\"1\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Width=\"6\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Height=\"6\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Style=\"{StaticResource VerticalPaneResizeHandleStyle}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Style=\"{StaticResource HorizontalPaneResizeHandleStyle}\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("<Border Background=\"{ThemeResource GitPullerAccentBrush}\" />", xaml, StringComparison.Ordinal);
     }
 
     [Fact]

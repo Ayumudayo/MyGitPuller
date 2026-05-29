@@ -108,11 +108,31 @@
             <Grid Width="0" Height="0" />
         </DataTemplate>
 
-        <Style x:Key="PaneResizeHandleStyle" TargetType="controls:PaneResizeHandle">
+        <Style x:Key="VerticalPaneResizeHandleStyle" TargetType="controls:PaneResizeHandle">
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="controls:PaneResizeHandle">
-                        <Border Background="{ThemeResource GitPullerAccentBrush}" />
+                        <Grid Background="Transparent">
+                            <Border
+                                Width="1"
+                                HorizontalAlignment="Center"
+                                Background="{ThemeResource GitPullerAccentBrush}" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="HorizontalPaneResizeHandleStyle" TargetType="controls:PaneResizeHandle">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="controls:PaneResizeHandle">
+                        <Grid Background="Transparent">
+                            <Border
+                                Height="1"
+                                VerticalAlignment="Center"
+                                Background="{ThemeResource GitPullerAccentBrush}" />
+                        </Grid>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -769,7 +789,7 @@
                             PointerMoved="PaneResizeHandle_PointerMoved"
                             PointerPressed="PaneResizeHandle_PointerPressed"
                             PointerReleased="PaneResizeHandle_PointerReleased"
-                            Style="{StaticResource PaneResizeHandleStyle}"
+                            Style="{StaticResource VerticalPaneResizeHandleStyle}"
                             Tag="DetailsColumn"
                             ToolTipService.ToolTip="Resize details panes" />
                     </Grid>
@@ -788,7 +808,7 @@
                 PointerMoved="PaneResizeHandle_PointerMoved"
                 PointerPressed="PaneResizeHandle_PointerPressed"
                 PointerReleased="PaneResizeHandle_PointerReleased"
-                Style="{StaticResource PaneResizeHandleStyle}"
+                Style="{StaticResource HorizontalPaneResizeHandleStyle}"
                 Tag="Details"
                 ToolTipService.ToolTip="Resize details pane" />
         </Grid>
@@ -806,7 +826,7 @@
             PointerMoved="PaneResizeHandle_PointerMoved"
             PointerPressed="PaneResizeHandle_PointerPressed"
             PointerReleased="PaneResizeHandle_PointerReleased"
-            Style="{StaticResource PaneResizeHandleStyle}"
+            Style="{StaticResource VerticalPaneResizeHandleStyle}"
             Tag="Sidebar"
             ToolTipService.ToolTip="Resize repository tree" />
 
