@@ -31,6 +31,7 @@ public sealed class MainShellViewModel : ObservableObject
     private string repositoryUrlToAdd = string.Empty;
     private string libraryRoot;
     private string? latestReportPath;
+    private bool latestReportPathResolved;
     private int runProgressCompleted;
     private int runProgressTotal;
     private DateTimeOffset lastSyncCompletedAt;
@@ -501,7 +502,13 @@ public sealed class MainShellViewModel : ObservableObject
     public string LaunchErrorMessage => launchErrorMessage;
     public bool HasLaunchStatus => !string.IsNullOrWhiteSpace(LaunchStatusMessage);
     public bool HasLaunchError => !string.IsNullOrWhiteSpace(LaunchErrorMessage);
-    public string LatestReportPath => string.IsNullOrWhiteSpace(latestReportPath)
+    public string LatestReportPath => !latestReportPathResolved
+        ? Path.Combine(LibraryRoot, GitPullerReportWriter.LatestReportFileName)
+        : string.IsNullOrWhiteSpace(latestReportPath)
+            ? string.Empty
+            : latestReportPath;
+
+    private string? OpenableLatestReportPath => !latestReportPathResolved
         ? Path.Combine(LibraryRoot, GitPullerReportWriter.LatestReportFileName)
         : latestReportPath;
     public bool CanOpenSelectedRepositoryFolder =>
@@ -515,7 +522,8 @@ public sealed class MainShellViewModel : ObservableObject
         && !string.IsNullOrWhiteSpace(LibraryRoot);
     public bool CanOpenLatestReport =>
         launcher is not null
-        && File.Exists(LatestReportPath);
+        && !string.IsNullOrWhiteSpace(OpenableLatestReportPath)
+        && File.Exists(OpenableLatestReportPath);
 
     public IReadOnlyList<RepositoryResultViewModel> VisibleResults => RepositoryResults
         .Where(ResultMatchesSelectedFolder)
@@ -1009,7 +1017,7 @@ public sealed class MainShellViewModel : ObservableObject
 
     public Task OpenLatestReportAsync()
     {
-        return LaunchPathAsync(LatestReportPath, "latest report");
+        return LaunchPathAsync(OpenableLatestReportPath ?? string.Empty, "latest report");
     }
 
     public Task OpenRemovedFolderAsync(RemovedRepositoryViewModel? removedRepository)
@@ -1747,8 +1755,22 @@ public sealed class MainShellViewModel : ObservableObject
             runResult.TotalRepositories,
             runResult.TotalRepositories,
             AppendReportPath(
-                runResult.HasFailures ? "Sync completed with items to review." : "Sync completed.",
+                GetRunCompletedMessage(runResult),
                 runResult.LatestReportPath));
+    }
+
+    private static string GetRunCompletedMessage(GitPullerRunResult runResult)
+    {
+        if (runResult.HasFailures)
+        {
+            return string.IsNullOrWhiteSpace(runResult.WarningMessage)
+                ? "Sync completed with items to review."
+                : $"Sync completed with items to review. {runResult.WarningMessage}";
+        }
+
+        return string.IsNullOrWhiteSpace(runResult.WarningMessage)
+            ? "Sync completed."
+            : runResult.WarningMessage;
     }
 
     private void ApplyRetryCompleted(RepoResult retryResult)
@@ -1793,11 +1815,13 @@ public sealed class MainShellViewModel : ObservableObject
         var normalizedPath = string.IsNullOrWhiteSpace(path)
             ? null
             : Path.GetFullPath(path);
-        if (string.Equals(latestReportPath, normalizedPath, StringComparison.OrdinalIgnoreCase))
+        if (latestReportPathResolved
+            && string.Equals(latestReportPath, normalizedPath, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
+        latestReportPathResolved = true;
         latestReportPath = normalizedPath;
         OnPropertyChanged(nameof(LatestReportPath));
         OnPropertyChanged(nameof(CanOpenLatestReport));

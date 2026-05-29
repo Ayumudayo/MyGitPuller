@@ -35,6 +35,69 @@ public sealed record GitPullerLibraryLoadResult(
     }
 }
 
+public interface IGitPullerReportService
+{
+    GitPullerReportWriteResult WriteReports(
+        string libraryRoot,
+        GitPullerRunResult runResult,
+        GitPullerOptions options,
+        CancellationToken cancellationToken);
+}
+
+public sealed class GitPullerReportService : IGitPullerReportService
+{
+    public GitPullerReportWriteResult WriteReports(
+        string libraryRoot,
+        GitPullerRunResult runResult,
+        GitPullerOptions options,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return GitPullerReportWriter.WriteReports(libraryRoot, runResult, options);
+    }
+}
+
+public interface IGitPullerRunner
+{
+    Task<GitPullerRunResult> RunAllAsync(
+        GitPullerRunRequest request,
+        IProgress<GitPullerProgressEvent>? progress,
+        CancellationToken cancellationToken);
+
+    Task<RepoResult> RetryRepositoryAsync(
+        GitPullerRunRequest previousRunRequest,
+        string repoPath,
+        IProgress<GitPullerProgressEvent>? progress,
+        CancellationToken cancellationToken);
+}
+
+public sealed class GitPullerRunnerAdapter : IGitPullerRunner
+{
+    private readonly GitPullerRunner inner;
+
+    public GitPullerRunnerAdapter(GitPullerRunner inner)
+    {
+        this.inner = inner;
+    }
+
+    public Task<GitPullerRunResult> RunAllAsync(
+        GitPullerRunRequest request,
+        IProgress<GitPullerProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        return inner.RunAllAsync(request, progress, cancellationToken);
+    }
+
+    public Task<RepoResult> RetryRepositoryAsync(
+        GitPullerRunRequest previousRunRequest,
+        string repoPath,
+        IProgress<GitPullerProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        return inner.RetryRepositoryAsync(previousRunRequest, repoPath, progress, cancellationToken);
+    }
+}
+
 public sealed class CoreGitPullerSyncService : IGitPullerSyncService
 {
     private const string PreferredDefaultLibraryRoot = @"E:\FF14\Repos\Remotes";
@@ -42,7 +105,8 @@ public sealed class CoreGitPullerSyncService : IGitPullerSyncService
 
     private readonly GitRepositoryScanner scanner;
     private readonly LibraryConfigStore configStore;
-    private readonly GitPullerRunner runner;
+    private readonly IGitPullerRunner runner;
+    private readonly IGitPullerReportService reportService;
     private readonly Func<string, bool> directoryExists;
     private readonly string? defaultLibraryRoot;
 
@@ -50,12 +114,15 @@ public sealed class CoreGitPullerSyncService : IGitPullerSyncService
         GitRepositoryScanner? scanner = null,
         LibraryConfigStore? configStore = null,
         GitPullerRunner? runner = null,
+        IGitPullerRunner? gitPullerRunner = null,
+        IGitPullerReportService? reportService = null,
         Func<string, bool>? directoryExists = null,
         string? defaultLibraryRoot = null)
     {
         this.scanner = scanner ?? new GitRepositoryScanner();
         this.configStore = configStore ?? new LibraryConfigStore();
-        this.runner = runner ?? new GitPullerRunner();
+        this.runner = gitPullerRunner ?? new GitPullerRunnerAdapter(runner ?? new GitPullerRunner());
+        this.reportService = reportService ?? new GitPullerReportService();
         this.directoryExists = directoryExists ?? Directory.Exists;
         this.defaultLibraryRoot = defaultLibraryRoot;
     }
@@ -110,7 +177,21 @@ public sealed class CoreGitPullerSyncService : IGitPullerSyncService
             ? null
             : new RunCompletedDeferringProgress(progress);
         var runResult = await runner.RunAllAsync(request, progressProxy, cancellationToken).ConfigureAwait(false);
-        var reportResult = GitPullerReportWriter.WriteReports(request.Inventory.LibraryRoot, runResult, request.Options);
+        GitPullerReportWriteResult? reportResult = null;
+        string? warningMessage = null;
+        try
+        {
+            reportResult = reportService.WriteReports(request.Inventory.LibraryRoot, runResult, request.Options, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            warningMessage = $"Report writing failed: {ex.Message}";
+        }
+
         var completedResult = new GitPullerRunResult
         {
             RepositoryResults = runResult.RepositoryResults,
@@ -118,12 +199,24 @@ public sealed class CoreGitPullerSyncService : IGitPullerSyncService
             CompletedAt = runResult.CompletedAt,
             Elapsed = runResult.Elapsed,
             ErrorMessage = runResult.ErrorMessage,
-            LatestReportPath = reportResult.LatestReportPath,
-            RunReportPath = reportResult.RunReportPath
+            WarningMessage = CombineWarningMessages(runResult.WarningMessage, warningMessage),
+            LatestReportPath = reportResult?.LatestReportPath ?? runResult.LatestReportPath,
+            RunReportPath = reportResult?.RunReportPath ?? runResult.RunReportPath
         };
 
         progress?.Report(GitPullerProgressEvent.RunCompleted(completedResult));
         return completedResult;
+    }
+
+    private static string? CombineWarningMessages(params string?[] warnings)
+    {
+        var activeWarnings = warnings
+            .Where(warning => !string.IsNullOrWhiteSpace(warning))
+            .Select(warning => warning!.Trim())
+            .ToArray();
+        return activeWarnings.Length == 0
+            ? null
+            : string.Join(" ", activeWarnings);
     }
 
     public Task<RepoResult> RetryRepositoryAsync(

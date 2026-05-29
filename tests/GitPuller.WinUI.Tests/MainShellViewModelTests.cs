@@ -1608,6 +1608,85 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task RunSyncAsync_KeepsRepositoryRowsAndShowsWarning_WhenRunCompletesWithWarning()
+    {
+        var libraryRoot = Path.Combine(TestRoot, "libraries", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(libraryRoot);
+        await File.WriteAllTextAsync(
+            Path.Combine(libraryRoot, GitPullerReportWriter.LatestReportFileName),
+            "stale report");
+        var repository = new RepositoryDescriptor(
+            Path.Combine(libraryRoot, "Plugins", "WarningRepo"),
+            "WarningRepo",
+            "Plugins",
+            "https://github.com/example/WarningRepo.git");
+        var result = RepoResultFor(repository, failed: false, newCommits: 2, diagnostic: null);
+        var loadResult = new GitPullerLibraryLoadResult(
+            libraryRoot,
+            new GitPullerOptions(),
+            new RepositoryInventory(libraryRoot, [repository]),
+            [],
+            ["Plugins"]);
+        var service = new FakeGitPullerSyncService(loadResult);
+        service.RunAllAsyncHandler = (_, _, _) => Task.FromResult(new GitPullerRunResult
+        {
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            RepositoryResults = [result],
+            WarningMessage = "Report writing failed: disk is full."
+        });
+        var viewModel = new MainShellViewModel(libraryRoot, service);
+
+        await viewModel.RunSyncAsync();
+
+        var row = Assert.Single(viewModel.RepositoryResults);
+        Assert.Equal("WarningRepo", row.Name);
+        Assert.Equal(RepositoryResultStatus.Updated, row.Status);
+        Assert.False(viewModel.HasRunError);
+        Assert.Contains("Report writing failed", viewModel.RunStatusMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Completed", viewModel.RunCompletionStatusText);
+        Assert.Equal(string.Empty, viewModel.LatestReportPath);
+        Assert.False(viewModel.CanOpenLatestReport);
+    }
+
+    [Fact]
+    public async Task RunSyncAsync_ShowsWarningAlongsideFailureSummary_WhenRunHasFailuresAndWarning()
+    {
+        var libraryRoot = Path.Combine(TestRoot, "libraries", Guid.NewGuid().ToString("N"));
+        var repository = new RepositoryDescriptor(
+            Path.Combine(libraryRoot, "Plugins", "FailedWarningRepo"),
+            "FailedWarningRepo",
+            "Plugins",
+            "https://github.com/example/FailedWarningRepo.git");
+        var result = RepoResultFor(
+            repository,
+            failed: true,
+            newCommits: 0,
+            Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error));
+        var loadResult = new GitPullerLibraryLoadResult(
+            libraryRoot,
+            new GitPullerOptions(),
+            new RepositoryInventory(libraryRoot, [repository]),
+            [],
+            ["Plugins"]);
+        var service = new FakeGitPullerSyncService(loadResult);
+        service.RunAllAsyncHandler = (_, _, _) => Task.FromResult(new GitPullerRunResult
+        {
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            RepositoryResults = [result],
+            WarningMessage = "Report writing failed: disk is full."
+        });
+        var viewModel = new MainShellViewModel(libraryRoot, service);
+
+        await viewModel.RunSyncAsync();
+
+        Assert.False(viewModel.HasRunError);
+        Assert.Contains("items to review", viewModel.RunStatusMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Report writing failed", viewModel.RunStatusMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task RunSyncAsync_QueuedProgressDoesNotOverwriteFinalReportStatus_AndRetryStillUpdatesProgress()
     {
         var libraryRoot = Path.Combine(TestRoot, "libraries", Guid.NewGuid().ToString("N"));
@@ -1712,6 +1791,133 @@ public sealed class MainShellViewModelTests
         Assert.True(File.Exists(result.LatestReportPath));
         Assert.True(File.Exists(result.RunReportPath));
         Assert.Contains("# Git Update Report", await File.ReadAllTextAsync(result.LatestReportPath));
+    }
+
+    [Fact]
+    public async Task CoreGitPullerSyncService_RunAllAsync_ReturnsResultsAndWarning_WhenReportWritingFails()
+    {
+        var scenarioRoot = Path.Combine(TestRoot, "sync-service", Guid.NewGuid().ToString("N"));
+        var libraryRoot = Path.Combine(scenarioRoot, "library");
+        var repositoryPath = Path.Combine(libraryRoot, "Plugins", "WarningReportRepo");
+        Directory.CreateDirectory(Path.GetDirectoryName(repositoryPath)!);
+
+        var remotePath = CreateBareRemoteRepository(scenarioRoot, "warning-report-repo");
+        RunGit(scenarioRoot, "clone", "--branch", "main", remotePath, repositoryPath);
+        var request = new GitPullerRunRequest(
+            new GitPullerOptions(),
+            new RepositoryInventory(
+                libraryRoot,
+                [
+                    new RepositoryDescriptor(
+                        repositoryPath,
+                        "WarningReportRepo",
+                        "Plugins",
+                        remotePath)
+                ]));
+        var progress = new CapturingProgress();
+        var service = new CoreGitPullerSyncService(
+            reportService: new ThrowingGitPullerReportService(new IOException("Report target is unavailable.")));
+
+        var result = await service.RunAllAsync(request, progress, CancellationToken.None);
+
+        Assert.Single(result.RepositoryResults);
+        Assert.False(result.HasFailures);
+        Assert.Null(result.ErrorMessage);
+        Assert.Null(result.LatestReportPath);
+        Assert.Null(result.RunReportPath);
+        Assert.Contains("Report writing failed", result.WarningMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Report target is unavailable", result.WarningMessage, StringComparison.OrdinalIgnoreCase);
+
+        var completed = Assert.Single(progress.Events, progressEvent =>
+            progressEvent.Kind == GitPullerProgressEventKind.RunCompleted);
+        Assert.False(completed.IsError);
+        Assert.True(completed.IsWarning);
+        Assert.Equal(result.WarningMessage, completed.Message);
+        Assert.Same(result, completed.RunResult);
+    }
+
+    [Fact]
+    public void GitPullerProgressEvent_RunCompleted_MarksFailedRepositoryRunAsErrorEvenWithWarning()
+    {
+        var runResult = new GitPullerRunResult
+        {
+            RepositoryResults =
+            [
+                new RepoResult
+                {
+                    Name = "FailedRepo",
+                    Path = Path.Combine(TestRoot, "Plugins", "FailedRepo"),
+                    Failed = true
+                }
+            ],
+            WarningMessage = "Report writing failed."
+        };
+
+        var completed = GitPullerProgressEvent.RunCompleted(runResult);
+
+        Assert.True(completed.IsError);
+        Assert.False(completed.IsWarning);
+    }
+
+    [Fact]
+    public async Task CoreGitPullerSyncService_RunAllAsync_PropagatesCancellation_WhenReportWritingIsCanceled()
+    {
+        var scenarioRoot = Path.Combine(TestRoot, "sync-service", Guid.NewGuid().ToString("N"));
+        var libraryRoot = Path.Combine(scenarioRoot, "library");
+        var repositoryPath = Path.Combine(libraryRoot, "Plugins", "CancelReportRepo");
+        Directory.CreateDirectory(Path.GetDirectoryName(repositoryPath)!);
+
+        var remotePath = CreateBareRemoteRepository(scenarioRoot, "cancel-report-repo");
+        RunGit(scenarioRoot, "clone", "--branch", "main", remotePath, repositoryPath);
+        var request = new GitPullerRunRequest(
+            new GitPullerOptions(),
+            new RepositoryInventory(
+                libraryRoot,
+                [
+                    new RepositoryDescriptor(
+                        repositoryPath,
+                        "CancelReportRepo",
+                        "Plugins",
+                        remotePath)
+                ]));
+        using var cts = new CancellationTokenSource();
+        var progress = new CapturingProgress();
+        var service = new CoreGitPullerSyncService(
+            reportService: new ThrowingGitPullerReportService(new OperationCanceledException(cts.Token)));
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            service.RunAllAsync(request, progress, cts.Token));
+
+        Assert.DoesNotContain(progress.Events, progressEvent =>
+            progressEvent.Kind == GitPullerProgressEventKind.RunCompleted);
+    }
+
+    [Fact]
+    public async Task CoreGitPullerSyncService_RunAllAsync_PreservesRunnerReportPaths_WhenReportWritingFails()
+    {
+        var runnerReportRoot = Path.Combine(TestRoot, "runner-reports", Guid.NewGuid().ToString("N"));
+        var runnerLatestReportPath = Path.Combine(runnerReportRoot, GitPullerReportWriter.LatestReportFileName);
+        var runnerRunReportPath = Path.Combine(runnerReportRoot, "git_update_report-runner.md");
+        var request = new GitPullerRunRequest(
+            new GitPullerOptions(),
+            new RepositoryInventory(TestRoot, []));
+        var runner = new FakeGitPullerRunner(new GitPullerRunResult
+        {
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            RepositoryResults = [],
+            LatestReportPath = runnerLatestReportPath,
+            RunReportPath = runnerRunReportPath
+        });
+        var service = new CoreGitPullerSyncService(
+            gitPullerRunner: runner,
+            reportService: new ThrowingGitPullerReportService(new IOException("Report writer failed.")));
+
+        var result = await service.RunAllAsync(request, progress: null, CancellationToken.None);
+
+        Assert.Equal(runnerLatestReportPath, result.LatestReportPath);
+        Assert.Equal(runnerRunReportPath, result.RunReportPath);
+        Assert.Contains("Report writer failed", result.WarningMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -2734,6 +2940,62 @@ public sealed class MainShellViewModelTests
             SavedSettings = JsonAppSettingsService.Normalize(settings);
             Settings = SavedSettings;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingGitPullerReportService : IGitPullerReportService
+    {
+        private readonly Exception exception;
+
+        public ThrowingGitPullerReportService(Exception exception)
+        {
+            this.exception = exception;
+        }
+
+        public GitPullerReportWriteResult WriteReports(
+            string libraryRoot,
+            GitPullerRunResult runResult,
+            GitPullerOptions options,
+            CancellationToken cancellationToken)
+        {
+            throw exception;
+        }
+    }
+
+    private sealed class FakeGitPullerRunner : IGitPullerRunner
+    {
+        private readonly GitPullerRunResult runResult;
+
+        public FakeGitPullerRunner(GitPullerRunResult runResult)
+        {
+            this.runResult = runResult;
+        }
+
+        public Task<GitPullerRunResult> RunAllAsync(
+            GitPullerRunRequest request,
+            IProgress<GitPullerProgressEvent>? progress,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(runResult);
+        }
+
+        public Task<RepoResult> RetryRepositoryAsync(
+            GitPullerRunRequest previousRunRequest,
+            string repoPath,
+            IProgress<GitPullerProgressEvent>? progress,
+            CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+    }
+
+    private sealed class CapturingProgress : IProgress<GitPullerProgressEvent>
+    {
+        public List<GitPullerProgressEvent> Events { get; } = [];
+
+        public void Report(GitPullerProgressEvent value)
+        {
+            Events.Add(value);
         }
     }
 

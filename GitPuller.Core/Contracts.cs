@@ -23,6 +23,7 @@ public sealed class GitPullerRunResult
     public DateTimeOffset CompletedAt { get; init; }
     public TimeSpan Elapsed { get; init; }
     public string? ErrorMessage { get; init; }
+    public string? WarningMessage { get; init; }
     public string? LatestReportPath { get; init; }
     public string? RunReportPath { get; init; }
 
@@ -98,9 +99,12 @@ public sealed class GitPullerProgressEvent
         {
             Kind = GitPullerProgressEventKind.RunCompleted,
             RunResult = runResult,
+            Message = runResult.WarningMessage,
             TotalRepositories = runResult.TotalRepositories,
             CompletedRepositories = runResult.TotalRepositories,
-            IsError = !string.IsNullOrWhiteSpace(runResult.ErrorMessage)
+            IsWarning = !string.IsNullOrWhiteSpace(runResult.WarningMessage)
+                && !runResult.HasFailures,
+            IsError = runResult.HasFailures
         };
     }
 }
