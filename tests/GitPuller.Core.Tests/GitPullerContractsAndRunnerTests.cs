@@ -127,6 +127,149 @@ public sealed class GitPullerContractsAndRunnerTests : IDisposable
             log => log.Text.Contains("Git LFS fetch failed", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task RunRepositoryAsync_WhenPreFetchRemoteRefSnapshotFails_SkipsCommitDeltaCalculation()
+    {
+        var repository = CreateTrackedRepository("pre-fetch-snapshot-failure");
+        var remoteMainSha = RunGitOutput(repository.Descriptor.Path, "rev-parse", "refs/remotes/origin/main");
+        var snapshotCallCount = 0;
+        var runner = new GitPullerRunner((_, _, _, _) =>
+        {
+            snapshotCallCount++;
+            if (snapshotCallCount == 1)
+            {
+                return new GitPullerRunner.RemoteRefsSnapshot(
+                    Succeeded: false,
+                    new Dictionary<string, string>(StringComparer.Ordinal),
+                    "Injected for-each-ref failure.");
+            }
+
+            return new GitPullerRunner.RemoteRefsSnapshot(
+                Succeeded: true,
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["refs/remotes/origin/main"] = remoteMainSha
+                },
+                string.Empty);
+        });
+        var request = new GitPullerRunRequest(
+            new GitPullerOptions
+            {
+                PullFfOnly = false,
+                InitMissingSubmodules = false
+            },
+            new RepositoryInventory(repository.LibraryRoot, new[] { repository.Descriptor }));
+
+        var result = await runner.RunRepositoryAsync(request, repository.Descriptor.Path, progress: null, CancellationToken.None);
+
+        Assert.False(result.Failed);
+        Assert.Equal(0, result.NewCommitsCount);
+        Assert.Equal(2, snapshotCallCount);
+        Assert.Contains(
+            result.Logs,
+            log => log.IsWarning
+                && log.Text.Contains("snapshot remote refs before fetch", StringComparison.OrdinalIgnoreCase)
+                && log.Text.Contains("commit delta calculation will be skipped", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Logs, log => log.IsCommit);
+    }
+
+    [Fact]
+    public async Task RunRepositoryAsync_WhenPostFetchRemoteRefSnapshotFails_SkipsCommitDeltaCalculation()
+    {
+        var repository = CreateTrackedRepository("post-fetch-snapshot-failure");
+        var remoteMainSha = RunGitOutput(repository.Descriptor.Path, "rev-parse", "refs/remotes/origin/main");
+        var snapshotCallCount = 0;
+        var runner = new GitPullerRunner((_, _, _, _) =>
+        {
+            snapshotCallCount++;
+            if (snapshotCallCount == 1)
+            {
+                return new GitPullerRunner.RemoteRefsSnapshot(
+                    Succeeded: true,
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["refs/remotes/origin/main"] = remoteMainSha
+                    },
+                    string.Empty);
+            }
+
+            return new GitPullerRunner.RemoteRefsSnapshot(
+                Succeeded: false,
+                new Dictionary<string, string>(StringComparer.Ordinal),
+                "Injected post-fetch for-each-ref failure.");
+        });
+        var request = new GitPullerRunRequest(
+            new GitPullerOptions
+            {
+                PullFfOnly = false,
+                InitMissingSubmodules = false
+            },
+            new RepositoryInventory(repository.LibraryRoot, new[] { repository.Descriptor }));
+
+        var result = await runner.RunRepositoryAsync(request, repository.Descriptor.Path, progress: null, CancellationToken.None);
+
+        Assert.False(result.Failed);
+        Assert.Equal(0, result.NewCommitsCount);
+        Assert.Equal(2, snapshotCallCount);
+        Assert.Contains(
+            result.Logs,
+            log => log.IsWarning
+                && log.Text.Contains("snapshot remote refs after fetch", StringComparison.OrdinalIgnoreCase)
+                && log.Text.Contains("commit delta calculation", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Logs, log => log.IsCommit);
+    }
+
+    [Fact]
+    public async Task RunRepositoryAsync_WhenPostFetchRemoteRefSnapshotFails_SkipsLocalBranchSync()
+    {
+        var repository = CreateTrackedRepository("post-fetch-snapshot-branch-sync");
+        var originalMainSha = RunGitOutput(repository.Descriptor.Path, "rev-parse", "refs/heads/main");
+        var staleBranch = "stale-local-branch";
+        RunGit(repository.Descriptor.Path, "branch", staleBranch, originalMainSha);
+        CreateRemoteCommit(repository, "remote update");
+        var oldRemoteMainSha = originalMainSha;
+        var snapshotCallCount = 0;
+        var runner = new GitPullerRunner((_, _, _, _) =>
+        {
+            snapshotCallCount++;
+            if (snapshotCallCount == 1)
+            {
+                return new GitPullerRunner.RemoteRefsSnapshot(
+                    Succeeded: true,
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["refs/remotes/origin/main"] = oldRemoteMainSha
+                    },
+                    string.Empty);
+            }
+
+            return new GitPullerRunner.RemoteRefsSnapshot(
+                Succeeded: false,
+                new Dictionary<string, string>(StringComparer.Ordinal),
+                "Injected post-fetch for-each-ref failure.");
+        });
+        var request = new GitPullerRunRequest(
+            new GitPullerOptions
+            {
+                ForceSync = true,
+                PullFfOnly = true,
+                SyncAllBranches = true,
+                CleanUntracked = false,
+                InitMissingSubmodules = false
+            },
+            new RepositoryInventory(repository.LibraryRoot, new[] { repository.Descriptor }));
+
+        var result = await runner.RunRepositoryAsync(request, repository.Descriptor.Path, progress: null, CancellationToken.None);
+
+        Assert.False(result.Failed);
+        Assert.Equal(2, snapshotCallCount);
+        Assert.Equal(originalMainSha, RunGitOutput(repository.Descriptor.Path, "rev-parse", $"refs/heads/{staleBranch}"));
+        Assert.Contains(
+            result.Logs,
+            log => log.IsWarning
+                && log.Text.Contains("local branch sync will be skipped", StringComparison.OrdinalIgnoreCase));
+    }
+
     public void Dispose()
     {
         try
@@ -178,7 +321,16 @@ public sealed class GitPullerContractsAndRunnerTests : IDisposable
 
         return new TrackedRepository(
             libraryRoot,
-            new RepositoryDescriptor(repositoryPath, "RepoOne", string.Empty, remotePath));
+            new RepositoryDescriptor(repositoryPath, "RepoOne", string.Empty, remotePath),
+            seedPath);
+    }
+
+    private static void CreateRemoteCommit(TrackedRepository repository, string text)
+    {
+        File.AppendAllText(Path.Combine(repository.SeedPath, "README.md"), $"{Environment.NewLine}{text}");
+        RunGit(repository.SeedPath, "add", "README.md");
+        RunGit(repository.SeedPath, "commit", "-m", text);
+        RunGit(repository.SeedPath, "push", "origin", "main");
     }
 
     private static void RunGit(string workingDirectory, params string[] arguments)
@@ -215,5 +367,40 @@ public sealed class GitPullerContractsAndRunnerTests : IDisposable
             $"git command failed ({process.ExitCode}): git {string.Join(' ', arguments)}{Environment.NewLine}{output}");
     }
 
-    private sealed record TrackedRepository(string LibraryRoot, RepositoryDescriptor Descriptor);
+    private static string RunGitOutput(string workingDirectory, params string[] arguments)
+    {
+        var processStartInfo = new ProcessStartInfo
+        {
+            FileName = "git",
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        foreach (var argument in arguments)
+        {
+            processStartInfo.ArgumentList.Add(argument);
+        }
+
+        processStartInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
+        processStartInfo.Environment["GCM_INTERACTIVE"] = "never";
+
+        using var process = Process.Start(processStartInfo);
+        Assert.NotNull(process);
+
+        var standardOutput = process.StandardOutput.ReadToEndAsync();
+        var standardError = process.StandardError.ReadToEndAsync();
+        Assert.True(process.WaitForExit(30000), $"git command timed out: git {string.Join(' ', arguments)}");
+        Task.WaitAll(standardOutput, standardError);
+
+        var output = (standardOutput.Result + Environment.NewLine + standardError.Result).Trim();
+        Assert.True(
+            process.ExitCode == 0,
+            $"git command failed ({process.ExitCode}): git {string.Join(' ', arguments)}{Environment.NewLine}{output}");
+        return standardOutput.Result.Trim();
+    }
+
+    private sealed record TrackedRepository(string LibraryRoot, RepositoryDescriptor Descriptor, string SeedPath);
 }

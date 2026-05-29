@@ -12,7 +12,29 @@ public sealed class GitPullerRunner
     private const int GitLockRetryDelayMs = 1000;
 
     private readonly ConcurrentDictionary<int, int> workerSlotsByThreadId = new();
+    private readonly RemoteRefsSnapshotReader remoteRefsSnapshotReader;
     private int nextWorkerSlot;
+
+    public GitPullerRunner()
+        : this(ReadRemoteRefsSnapshot)
+    {
+    }
+
+    internal GitPullerRunner(RemoteRefsSnapshotReader? remoteRefsSnapshotReader)
+    {
+        this.remoteRefsSnapshotReader = remoteRefsSnapshotReader ?? ReadRemoteRefsSnapshot;
+    }
+
+    internal delegate RemoteRefsSnapshot RemoteRefsSnapshotReader(
+        string repoPath,
+        GitPullerOptions options,
+        RepoResult? result,
+        CancellationToken cancellationToken);
+
+    internal sealed record RemoteRefsSnapshot(
+        bool Succeeded,
+        Dictionary<string, string> Refs,
+        string Output);
 
     public Task<GitPullerRunResult> RunAllAsync(GitPullerRunRequest request, IProgress<GitPullerProgressEvent>? progress, CancellationToken cancellationToken)
     {
@@ -107,7 +129,7 @@ public sealed class GitPullerRunner
 
     private RepoResult RunRepository(RepositoryDescriptor repository, GitPullerOptions options, CancellationToken cancellationToken)
     {
-        return FinalizeRepositoryResult(() => ProcessRepository(repository, options, cancellationToken));
+        return FinalizeRepositoryResult(() => ProcessRepository(repository, options, remoteRefsSnapshotReader, cancellationToken));
     }
 
     private RepoResult RejectRepository(RepositoryDescriptor repository, string message, CancellationToken cancellationToken)
@@ -141,7 +163,11 @@ public sealed class GitPullerRunner
         return result;
     }
 
-    private static RepoResult ProcessRepository(RepositoryDescriptor repository, GitPullerOptions options, CancellationToken cancellationToken)
+    private static RepoResult ProcessRepository(
+        RepositoryDescriptor repository,
+        GitPullerOptions options,
+        RemoteRefsSnapshotReader remoteRefsSnapshotReader,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var result = new RepoResult
@@ -165,7 +191,15 @@ public sealed class GitPullerRunner
 
         TryCleanupStaleGitLocks(repository.Path, options, result);
 
-        var beforeRefs = GetRemoteRefs(repository.Path, options, result, cancellationToken);
+        var beforeRefs = remoteRefsSnapshotReader(repository.Path, options, result, cancellationToken);
+        if (!beforeRefs.Succeeded)
+        {
+            result.Logs.Add(new LogItem
+            {
+                Text = $"Could not snapshot remote refs before fetch; commit delta calculation will be skipped.\n{beforeRefs.Output}",
+                IsWarning = true
+            });
+        }
         var retries = 3;
         var rc = -1;
         var outputText = string.Empty;
@@ -200,34 +234,46 @@ public sealed class GitPullerRunner
 
         TryFetchLfsObjects(repository.Path, options, result, cancellationToken);
 
-        var afterRefs = GetRemoteRefs(repository.Path, options, result, cancellationToken);
+        var afterRefs = remoteRefsSnapshotReader(repository.Path, options, result, cancellationToken);
+        if (!afterRefs.Succeeded)
+        {
+            result.Logs.Add(new LogItem
+            {
+                Text = $"Could not snapshot remote refs after fetch; commit delta calculation and local branch sync will be skipped.\n{afterRefs.Output}",
+                IsWarning = true
+            });
+        }
+
         var seenCommits = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var kvp in afterRefs)
+        if (beforeRefs.Succeeded && afterRefs.Succeeded)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var refName = kvp.Key;
-            var newSha = kvp.Value;
-
-            if (refName.EndsWith("/HEAD", StringComparison.Ordinal))
+            foreach (var kvp in afterRefs.Refs)
             {
-                continue;
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                var refName = kvp.Key;
+                var newSha = kvp.Value;
 
-            if (!beforeRefs.TryGetValue(refName, out var oldSha))
-            {
-                var (rcLog, logOutput) = RunGit(repository.Path, $"log -1 --format=\"%h %s (%an)\" {newSha}", options, result, cancellationToken);
-                if (rcLog == 0 && !string.IsNullOrWhiteSpace(logOutput))
+                if (refName.EndsWith("/HEAD", StringComparison.Ordinal))
                 {
-                    ParseAndAddCommits(result, logOutput, seenCommits);
+                    continue;
                 }
-            }
-            else if (!string.Equals(oldSha, newSha, StringComparison.OrdinalIgnoreCase))
-            {
-                var (rcLog, logOutput) = RunGit(repository.Path, $"log --format=\"%h %s (%an)\" {oldSha}..{newSha}", options, result, cancellationToken);
-                if (rcLog == 0 && !string.IsNullOrWhiteSpace(logOutput))
+
+                if (!beforeRefs.Refs.TryGetValue(refName, out var oldSha))
                 {
-                    ParseAndAddCommits(result, logOutput, seenCommits);
+                    var (rcLog, logOutput) = RunGit(repository.Path, $"log -1 --format=\"%h %s (%an)\" {newSha}", options, result, cancellationToken);
+                    if (rcLog == 0 && !string.IsNullOrWhiteSpace(logOutput))
+                    {
+                        ParseAndAddCommits(result, logOutput, seenCommits);
+                    }
+                }
+                else if (!string.Equals(oldSha, newSha, StringComparison.OrdinalIgnoreCase))
+                {
+                    var (rcLog, logOutput) = RunGit(repository.Path, $"log --format=\"%h %s (%an)\" {oldSha}..{newSha}", options, result, cancellationToken);
+                    if (rcLog == 0 && !string.IsNullOrWhiteSpace(logOutput))
+                    {
+                        ParseAndAddCommits(result, logOutput, seenCommits);
+                    }
                 }
             }
         }
@@ -239,14 +285,14 @@ public sealed class GitPullerRunner
                 TrySyncWorkingTree(repository.Path, options, result, cancellationToken);
                 if (options.SyncAllBranches)
                 {
-                    TrySyncLocalBranches(repository.Path, afterRefs, options, result, cancellationToken);
+                    TrySyncLocalBranchesIfRefsAvailable(repository.Path, afterRefs, options, result, cancellationToken);
                 }
             }
             else
             {
                 if (options.SyncAllBranches)
                 {
-                    TrySyncLocalBranches(repository.Path, afterRefs, options, result, cancellationToken);
+                    TrySyncLocalBranchesIfRefsAvailable(repository.Path, afterRefs, options, result, cancellationToken);
                 }
 
                 TrySyncWorkingTree(repository.Path, options, result, cancellationToken);
@@ -888,13 +934,32 @@ public sealed class GitPullerRunner
         }
     }
 
-    private static Dictionary<string, string> GetRemoteRefs(string repoPath, GitPullerOptions options, RepoResult? result, CancellationToken cancellationToken)
+    private static void TrySyncLocalBranchesIfRefsAvailable(
+        string repoPath,
+        RemoteRefsSnapshot remoteRefs,
+        GitPullerOptions options,
+        RepoResult result,
+        CancellationToken cancellationToken)
+    {
+        if (!remoteRefs.Succeeded)
+        {
+            return;
+        }
+
+        TrySyncLocalBranches(repoPath, remoteRefs.Refs, options, result, cancellationToken);
+    }
+
+    private static RemoteRefsSnapshot ReadRemoteRefsSnapshot(
+        string repoPath,
+        GitPullerOptions options,
+        RepoResult? result,
+        CancellationToken cancellationToken)
     {
         var refs = new Dictionary<string, string>(StringComparer.Ordinal);
         var (rc, output) = RunGit(repoPath, "for-each-ref --format=\"%(refname) %(objectname)\" refs/remotes", options, result, cancellationToken);
         if (rc != 0)
         {
-            return refs;
+            return new RemoteRefsSnapshot(Succeeded: false, refs, output);
         }
 
         using var reader = new StringReader(output);
@@ -909,7 +974,7 @@ public sealed class GitPullerRunner
             }
         }
 
-        return refs;
+        return new RemoteRefsSnapshot(Succeeded: true, refs, output);
     }
 
     private static (int rc, string output) RunGit(string cwd, string args, GitPullerOptions options, RepoResult? result, CancellationToken cancellationToken)
