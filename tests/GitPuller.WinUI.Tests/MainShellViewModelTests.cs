@@ -1055,6 +1055,51 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task CoreRepositoryManagementService_CloneReportsRollbackCleanupFailure_WhenConfigSaveAndCleanupFail()
+    {
+        var scenarioRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        var libraryRoot = Path.Combine(scenarioRoot, "Library");
+        var targetPath = Path.Combine(libraryRoot, "Plugins", "RepoA");
+        var remotePath = CreateBareRemoteRepository(scenarioRoot, "RepoA");
+        FileStream? lockHandle = null;
+        var store = new FailingRepositoryManagementConfigStore(new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins"]
+        })
+        {
+            ThrowOnSave = true,
+            BeforeSaveFailure = () =>
+            {
+                var lockPath = Path.Combine(targetPath, ".cleanup-lock");
+                lockHandle = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+        };
+        var service = new CoreRepositoryManagementService(store);
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CloneRepositoryAsync(
+                new RepositoryAddRequest(libraryRoot, "Plugins", remotePath),
+                new GitPullerOptions(),
+                CancellationToken.None));
+
+            Assert.True(Directory.Exists(targetPath));
+            Assert.Empty(store.PersistedConfig.Repositories);
+            Assert.Contains("rollback cleanup also failed", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Injected config save failure", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("manual recovery", exception.Message, StringComparison.OrdinalIgnoreCase);
+            var aggregate = Assert.IsType<AggregateException>(exception.InnerException);
+            Assert.Equal(2, aggregate.InnerExceptions.Count);
+            Assert.IsType<InvalidOperationException>(aggregate.InnerExceptions[0]);
+        }
+        finally
+        {
+            lockHandle?.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task CoreRepositoryManagementService_RestoreRollsBackMovedFolder_WhenConfigSaveFails()
     {
         var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
@@ -1077,6 +1122,38 @@ public sealed class MainShellViewModelTests
         Assert.True(Directory.Exists(removed.RemovedPath));
         Assert.False(Directory.Exists(removed.OriginalPath));
         Assert.Single(store.PersistedConfig.RemovedRepositories);
+    }
+
+    [Fact]
+    public async Task CoreRepositoryManagementService_RestoreReportsRollbackMoveFailure_WhenConfigSaveAndRollbackMoveFail()
+    {
+        var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        var removed = RemovedRecord("RestoreRollbackFailure", libraryRoot);
+        CreateRepositoryDirectory(removed.RemovedPath);
+        var store = new FailingRepositoryManagementConfigStore(new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins"],
+            RemovedRepositories = [removed]
+        })
+        {
+            ThrowOnSave = true,
+            BeforeSaveFailure = () => Directory.CreateDirectory(removed.RemovedPath)
+        };
+        var service = new CoreRepositoryManagementService(store);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RestoreRepositoryAsync(libraryRoot, removed, CancellationToken.None));
+
+        Assert.True(Directory.Exists(removed.OriginalPath));
+        Assert.True(Directory.Exists(removed.RemovedPath));
+        Assert.Single(store.PersistedConfig.RemovedRepositories);
+        Assert.Contains("rollback move also failed", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Injected config save failure", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("manual recovery", exception.Message, StringComparison.OrdinalIgnoreCase);
+        var aggregate = Assert.IsType<AggregateException>(exception.InnerException);
+        Assert.Equal(2, aggregate.InnerExceptions.Count);
+        Assert.IsType<InvalidOperationException>(aggregate.InnerExceptions[0]);
     }
 
     [Fact]
@@ -1103,6 +1180,39 @@ public sealed class MainShellViewModelTests
         Assert.True(Directory.Exists(removed.RemovedPath));
         Assert.False(Directory.Exists(alternatePath));
         Assert.Single(store.PersistedConfig.RemovedRepositories);
+    }
+
+    [Fact]
+    public async Task CoreRepositoryManagementService_RestoreAsReportsRollbackMoveFailure_WhenConfigSaveAndRollbackMoveFail()
+    {
+        var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        var removed = RemovedRecord("RestoreAsRollbackFailure", libraryRoot);
+        var alternatePath = Path.Combine(libraryRoot, "Tools", "RestoreAsLocal");
+        CreateRepositoryDirectory(removed.RemovedPath);
+        var store = new FailingRepositoryManagementConfigStore(new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins", "Tools"],
+            RemovedRepositories = [removed]
+        })
+        {
+            ThrowOnSave = true,
+            BeforeSaveFailure = () => Directory.CreateDirectory(removed.RemovedPath)
+        };
+        var service = new CoreRepositoryManagementService(store);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RestoreRepositoryAsAsync(libraryRoot, removed, "Tools", "RestoreAsLocal", CancellationToken.None));
+
+        Assert.True(Directory.Exists(alternatePath));
+        Assert.True(Directory.Exists(removed.RemovedPath));
+        Assert.Single(store.PersistedConfig.RemovedRepositories);
+        Assert.Contains("rollback move also failed", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Injected config save failure", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("manual recovery", exception.Message, StringComparison.OrdinalIgnoreCase);
+        var aggregate = Assert.IsType<AggregateException>(exception.InnerException);
+        Assert.Equal(2, aggregate.InnerExceptions.Count);
+        Assert.IsType<InvalidOperationException>(aggregate.InnerExceptions[0]);
     }
 
     [Fact]
@@ -2287,6 +2397,7 @@ public sealed class MainShellViewModelTests
         public int? ThrowOnSaveCall { get; set; }
         public int SaveCallCount { get; private set; }
         public bool RespectCancellationOnSave { get; set; }
+        public Action? BeforeSaveFailure { get; set; }
 
         public Task<LibraryConfig> LoadAsync(string libraryRoot, CancellationToken cancellationToken)
         {
@@ -2303,6 +2414,7 @@ public sealed class MainShellViewModelTests
             SaveCallCount++;
             if (ThrowOnSave || ThrowOnSaveCall == SaveCallCount)
             {
+                BeforeSaveFailure?.Invoke();
                 throw new InvalidOperationException("Injected config save failure.");
             }
 

@@ -122,9 +122,13 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         {
             await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (Exception saveException)
         {
-            TryDeleteDirectory(cloneResult.Repository.Path);
+            var rollbackException = TryDeleteDirectory(cloneResult.Repository.Path);
+            ThrowIfCompensationFailed(
+                "Repository clone metadata save failed and rollback cleanup also failed.",
+                saveException,
+                rollbackException);
             throw;
         }
 
@@ -162,9 +166,13 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         {
             await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (Exception saveException)
         {
-            TryMoveDirectory(restored.Path, removedRepository.RemovedPath);
+            var rollbackException = TryMoveDirectory(restored.Path, removedRepository.RemovedPath);
+            ThrowIfCompensationFailed(
+                "Repository restore metadata save failed and rollback move also failed.",
+                saveException,
+                rollbackException);
             throw;
         }
 
@@ -206,9 +214,13 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         {
             await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (Exception saveException)
         {
-            TryMoveDirectory(restored.Path, removedRepository.RemovedPath);
+            var rollbackException = TryMoveDirectory(restored.Path, removedRepository.RemovedPath);
+            ThrowIfCompensationFailed(
+                "Repository restore-as metadata save failed and rollback move also failed.",
+                saveException,
+                rollbackException);
             throw;
         }
 
@@ -353,7 +365,7 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         }
     }
 
-    private static void TryDeleteDirectory(string path)
+    private static Exception? TryDeleteDirectory(string path)
     {
         try
         {
@@ -362,27 +374,60 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
                 ClearReadOnlyAttributes(path);
                 Directory.Delete(path, recursive: true);
             }
+
+            return null;
         }
-        catch
+        catch (Exception ex)
         {
+            return ex;
         }
     }
 
-    private static void TryMoveDirectory(string sourcePath, string destinationPath)
+    private static Exception? TryMoveDirectory(string sourcePath, string destinationPath)
     {
         try
         {
-            if (!Directory.Exists(sourcePath) || Directory.Exists(destinationPath) || File.Exists(destinationPath))
+            if (!Directory.Exists(sourcePath))
             {
-                return;
+                return new DirectoryNotFoundException($"Rollback source directory was not found: {sourcePath}");
+            }
+
+            if (Directory.Exists(destinationPath) || File.Exists(destinationPath))
+            {
+                return new IOException($"Rollback destination already exists: {destinationPath}");
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
             Directory.Move(sourcePath, destinationPath);
+            return null;
         }
-        catch
+        catch (Exception ex)
         {
+            return ex;
         }
+    }
+
+    private static void ThrowIfCompensationFailed(
+        string message,
+        Exception originalException,
+        Exception? compensationException)
+    {
+        if (compensationException is null)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            BuildCompensationFailureMessage(message, originalException, compensationException),
+            new AggregateException(originalException, compensationException));
+    }
+
+    private static string BuildCompensationFailureMessage(
+        string message,
+        Exception originalException,
+        Exception compensationException)
+    {
+        return $"{message} Original failure: {originalException.Message} Rollback failure: {compensationException.Message} Manual recovery may be required.";
     }
 
     private static void ClearReadOnlyAttributes(string directoryPath)
