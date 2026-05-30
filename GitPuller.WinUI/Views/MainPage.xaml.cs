@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.ComponentModel;
 using Windows.Foundation;
 using Windows.Storage.Pickers;
@@ -15,6 +16,7 @@ public sealed partial class MainPage : Page
 {
     private bool suppressFolderTreeSelectionChanged;
     private PaneResizeTarget? activePaneResizeTarget;
+    private ContentDialog? activeRemovedRepositoriesDialog;
     private Point lastResizePointerPoint;
 
     public MainShellViewModel ViewModel { get; }
@@ -789,9 +791,25 @@ public sealed partial class MainPage : Page
 
     private async Task ShowRemovedRepositoriesDialogAsync()
     {
-        var listPanel = new StackPanel
+        var emptyMessage = new TextBlock
         {
-            Spacing = 10
+            Text = "No removed repositories are waiting for restore or permanent deletion.",
+            TextWrapping = TextWrapping.WrapWholeWords
+        };
+        var listView = new ListView
+        {
+            Name = "RemovedRepositoryDialogList",
+            SelectionMode = ListViewSelectionMode.None,
+            ItemsSource = ViewModel.RemovedRepositories,
+            ItemTemplate = (DataTemplate)Resources["RemovedRepositoryDialogItemTemplate"]
+        };
+        var dialogContent = new Grid
+        {
+            Children =
+            {
+                emptyMessage,
+                listView
+            }
         };
 
         var dialog = new ContentDialog
@@ -804,110 +822,33 @@ public sealed partial class MainPage : Page
                 MaxHeight = 640,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Content = listPanel
+                Content = dialogContent
             }
         };
 
-        if (ViewModel.RemovedRepositories.Count == 0)
+        void UpdateRemovedRepositoryDialogState()
         {
-            listPanel.Children.Add(new TextBlock
-            {
-                Text = "No removed repositories are waiting for restore or permanent deletion.",
-                TextWrapping = TextWrapping.WrapWholeWords
-            });
-        }
-        else
-        {
-            foreach (var removedRepository in ViewModel.RemovedRepositories)
-            {
-                listPanel.Children.Add(CreateRemovedRepositoryRow(removedRepository, dialog));
-            }
+            var hasRemovedRepositories = ViewModel.RemovedRepositories.Count > 0;
+            emptyMessage.Visibility = hasRemovedRepositories ? Visibility.Collapsed : Visibility.Visible;
+            listView.Visibility = hasRemovedRepositories ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        await dialog.ShowAsync();
-    }
-
-    private FrameworkElement CreateRemovedRepositoryRow(
-        RemovedRepositoryViewModel removedRepository,
-        ContentDialog ownerDialog)
-    {
-        var nameText = new TextBlock
+        NotifyCollectionChangedEventHandler collectionChanged = (_, _) => UpdateRemovedRepositoryDialogState();
+        ViewModel.RemovedRepositories.CollectionChanged += collectionChanged;
+        activeRemovedRepositoriesDialog = dialog;
+        try
         {
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Text = removedRepository.Name,
-            TextWrapping = TextWrapping.WrapWholeWords
-        };
-        var pathText = new TextBlock
+            UpdateRemovedRepositoryDialogState();
+            await dialog.ShowAsync();
+        }
+        finally
         {
-            Text = removedRepository.RemovedPath,
-            TextWrapping = TextWrapping.WrapWholeWords
-        };
-        var categoryText = new TextBlock
-        {
-            Text = removedRepository.Record.Category,
-            TextWrapping = TextWrapping.WrapWholeWords
-        };
-        var restoreButton = new Button
-        {
-            Content = "Restore",
-            IsEnabled = removedRepository.CanRestore
-        };
-        var restoreAsButton = new Button
-        {
-            Content = "Restore as"
-        };
-        var openButton = new Button
-        {
-            Content = "Open folder"
-        };
-        var deleteButton = new Button
-        {
-            Content = "Delete"
-        };
-
-        restoreButton.Click += async (_, _) => await ViewModel.RestoreRemovedRepositoryAsync(removedRepository);
-        restoreAsButton.Click += async (_, _) =>
-        {
-            ownerDialog.Hide();
-            await ShowRestoreRemovedRepositoryAsDialogAsync(removedRepository);
-        };
-        openButton.Click += async (_, _) => await ViewModel.OpenRemovedFolderAsync(removedRepository);
-        deleteButton.Click += async (_, _) =>
-        {
-            ownerDialog.Hide();
-            await ConfirmPermanentDeleteRemovedRepositoryAsync(removedRepository);
-        };
-
-        var actionPanel = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            Children =
+            ViewModel.RemovedRepositories.CollectionChanged -= collectionChanged;
+            if (ReferenceEquals(activeRemovedRepositoriesDialog, dialog))
             {
-                restoreButton,
-                restoreAsButton,
-                openButton,
-                deleteButton
+                activeRemovedRepositoriesDialog = null;
             }
-        };
-
-        return new Border
-        {
-            Padding = new Thickness(10),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6),
-            Child = new StackPanel
-            {
-                Spacing = 6,
-                Children =
-                {
-                    nameText,
-                    categoryText,
-                    pathText,
-                    actionPanel
-                }
-            }
-        };
+        }
     }
 
     private void AdvancedWorkersNumberBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
@@ -938,6 +879,7 @@ public sealed partial class MainPage : Page
             return;
         }
 
+        activeRemovedRepositoriesDialog?.Hide();
         await ShowRestoreRemovedRepositoryAsDialogAsync(removedRepository);
     }
 
@@ -1026,6 +968,7 @@ public sealed partial class MainPage : Page
             return;
         }
 
+        activeRemovedRepositoriesDialog?.Hide();
         await ConfirmPermanentDeleteRemovedRepositoryAsync(removedRepository);
     }
 

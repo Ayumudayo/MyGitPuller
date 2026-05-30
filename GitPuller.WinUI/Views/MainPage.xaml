@@ -108,6 +108,45 @@
             <Grid Width="0" Height="0" />
         </DataTemplate>
 
+        <DataTemplate x:Key="RemovedRepositoryDialogItemTemplate" x:DataType="vm:RemovedRepositoryViewModel">
+            <Border
+                Margin="0,0,0,10"
+                Padding="10"
+                Background="{ThemeResource GitPullerPanelAltBrush}"
+                BorderBrush="{ThemeResource GitPullerBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="6">
+                <StackPanel Spacing="6">
+                    <TextBlock
+                        FontWeight="SemiBold"
+                        Text="{x:Bind Name}"
+                        TextWrapping="WrapWholeWords" />
+                    <TextBlock
+                        Foreground="{ThemeResource GitPullerMutedTextBrush}"
+                        Text="{x:Bind Category}"
+                        TextWrapping="WrapWholeWords" />
+                    <TextBlock
+                        Text="{x:Bind RemovedPath}"
+                        TextWrapping="WrapWholeWords" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            Click="RestoreRemovedRepositoryButton_Click"
+                            Content="Restore"
+                            IsEnabled="{x:Bind CanRestore}" />
+                        <Button
+                            Click="RestoreRemovedRepositoryAsButton_Click"
+                            Content="Restore as" />
+                        <Button
+                            Click="OpenRemovedRepositoryFolderButton_Click"
+                            Content="Open folder" />
+                        <Button
+                            Click="PermanentlyDeleteRemovedRepositoryButton_Click"
+                            Content="Delete" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
         <Style x:Key="VerticalPaneResizeHandleStyle" TargetType="controls:PaneResizeHandle">
             <Setter Property="Template">
                 <Setter.Value>

@@ -970,6 +970,20 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public void RemovedRepositoriesDialog_UsesBoundLiveCollectionInsteadOfSnapshotRows()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+        var codeBehind = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml.cs");
+
+        Assert.Contains("x:Key=\"RemovedRepositoryDialogItemTemplate\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("RestoreRemovedRepositoryButton_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("PermanentlyDeleteRemovedRepositoryButton_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("ItemsSource = ViewModel.RemovedRepositories", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("RemovedRepositoryDialogList", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateRemovedRepositoryRow", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AddRepositoryPreview_DisablesCloneUntilCorePreviewIsValid()
     {
         var repositoryService = new FakeRepositoryManagementService();
