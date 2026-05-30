@@ -439,6 +439,77 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public void RunStateStore_RoundTripsReadableRunStateJson()
+    {
+        var libraryRoot = Path.Combine(TestRoot, "run-state", Guid.NewGuid().ToString("N"));
+        var completedAt = new DateTimeOffset(2026, 5, 30, 11, 30, 0, TimeSpan.Zero);
+        var store = new JsonRunStateStore();
+        var state = new PersistedRunState
+        {
+            LibraryRoot = libraryRoot,
+            Status = PersistedRunStatus.Completed,
+            StartedAt = completedAt.AddMinutes(-2),
+            CompletedAt = completedAt,
+            CompletedRepositories = 1,
+            TotalRepositories = 1,
+            Message = "Sync completed.",
+            LatestReportPath = Path.Combine(libraryRoot, GitPullerReportWriter.LatestReportFileName),
+            RepositoryResults =
+            [
+                new PersistedRepositoryResult
+                {
+                    Name = "RoundTripRepo",
+                    Category = "Plugins",
+                    Path = Path.Combine(libraryRoot, "Plugins", "RoundTripRepo"),
+                    RemoteUrl = "https://github.com/example/RoundTripRepo.git",
+                    Status = RepositoryResultStatus.Updated,
+                    NewCommitsCount = 4,
+                    ElapsedMilliseconds = 1250,
+                    CompletedAt = completedAt,
+                    LogLines = ["git fetch --all"]
+                }
+            ]
+        };
+
+        store.Save(state);
+        var loaded = store.Load(libraryRoot);
+        var json = File.ReadAllText(JsonRunStateStore.GetRunStatePath(libraryRoot));
+
+        Assert.NotNull(loaded);
+        Assert.Equal(PersistedRunStatus.Completed, loaded.Status);
+        Assert.Equal("RoundTripRepo", Assert.Single(loaded.RepositoryResults).Name);
+        Assert.Contains("\"status\": \"completed\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunStateStore_NormalizesMalformedRepositoryResults()
+    {
+        var libraryRoot = Path.Combine(TestRoot, "run-state", Guid.NewGuid().ToString("N"));
+        var runStatePath = JsonRunStateStore.GetRunStatePath(libraryRoot);
+        Directory.CreateDirectory(Path.GetDirectoryName(runStatePath)!);
+        File.WriteAllText(
+            runStatePath,
+            $$"""
+            {
+              "libraryRoot": "{{libraryRoot.Replace("\\", "\\\\")}}",
+              "status": "completed",
+              "startedAt": "2026-05-30T11:28:00+00:00",
+              "completedAt": "2026-05-30T11:30:00+00:00",
+              "completedRepositories": 1,
+              "totalRepositories": 1,
+              "message": "Sync completed.",
+              "repositoryResults": null
+            }
+            """);
+        var store = new JsonRunStateStore();
+
+        var loaded = store.Load(libraryRoot);
+
+        Assert.NotNull(loaded);
+        Assert.Empty(loaded.RepositoryResults);
+    }
+
+    [Fact]
     public async Task InitializeAsync_UsesSavedLibraryRootBeforeDefaultRoot()
     {
         var savedRoot = Path.Combine(TestRoot, "saved-root");
@@ -552,6 +623,54 @@ public sealed class MainShellViewModelTests
             [Path.GetFullPath(newRoot), Path.GetFullPath(initialRoot)],
             appSettings.SavedSettings?.RecentLibraryRoots);
         Assert.Equal(1, service.LoadCallCount);
+    }
+
+    [Fact]
+    public async Task ChangeLibraryRootAsync_RestoresPersistedRunStateForNewRoot()
+    {
+        var initialRoot = Path.Combine(TestRoot, "root-persisted-old");
+        var newRoot = Path.Combine(TestRoot, "root-persisted-new");
+        var repository = new RepositoryDescriptor(
+            Path.Combine(newRoot, "Tools", "PersistedRepo"),
+            "PersistedRepo",
+            "Tools",
+            "https://github.com/example/PersistedRepo.git");
+        var loadResult = new GitPullerLibraryLoadResult(
+            newRoot,
+            new GitPullerOptions(),
+            new RepositoryInventory(newRoot, [repository]),
+            [],
+            ["Tools"]);
+        var completedAt = new DateTimeOffset(2026, 5, 30, 12, 0, 0, TimeSpan.Zero);
+        var result = RepoResultFor(repository, failed: false, newCommits: 2, diagnostic: null);
+        result.CompletedAt = completedAt;
+        var runStateStore = new FakeRunStateStore
+        {
+            LoadedState = new PersistedRunState
+            {
+                LibraryRoot = newRoot,
+                Status = PersistedRunStatus.Completed,
+                StartedAt = completedAt.AddMinutes(-2),
+                CompletedAt = completedAt,
+                CompletedRepositories = 1,
+                TotalRepositories = 1,
+                Message = "Sync completed.",
+                RepositoryResults = [PersistedRepositoryResult.FromViewModel(RepositoryResultViewModel.FromResult(result, repository))]
+            }
+        };
+        var service = new FakeGitPullerSyncService(loadResult);
+        var viewModel = new MainShellViewModel(
+            initialRoot,
+            service,
+            appSettingsService: new FakeAppSettingsService(new AppSettings(initialRoot, [initialRoot])),
+            runStateStore: runStateStore);
+
+        await viewModel.ChangeLibraryRootAsync(newRoot);
+
+        var restored = Assert.Single(viewModel.RepositoryResults);
+        Assert.Equal("PersistedRepo", restored.Name);
+        Assert.Equal("Sync completed.", viewModel.CurrentProgressMessage);
+        Assert.Equal("Completed", viewModel.RunCompletionStatusText);
     }
 
     [Fact]
@@ -1804,6 +1923,145 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task InitializeAsync_RestoresCompletedRunStateFromStore()
+    {
+        var repository = Descriptor("Plugins", "PersistedRepo");
+        var completedAt = new DateTimeOffset(2026, 5, 30, 10, 15, 0, TimeSpan.Zero);
+        var result = RepoResultFor(repository, failed: false, newCommits: 3, diagnostic: null);
+        result.CompletedAt = completedAt;
+        var runStateStore = new FakeRunStateStore
+        {
+            LoadedState = new PersistedRunState
+            {
+                LibraryRoot = TestRoot,
+                Status = PersistedRunStatus.Completed,
+                StartedAt = completedAt.AddMinutes(-1),
+                CompletedAt = completedAt,
+                CompletedRepositories = 1,
+                TotalRepositories = 0,
+                Message = "Sync completed.",
+                RepositoryResults = [PersistedRepositoryResult.FromViewModel(RepositoryResultViewModel.FromResult(result, repository))]
+            }
+        };
+        var service = new FakeGitPullerSyncService(LoadResult(new GitPullerOptions(), [repository], ["Plugins"]));
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            service,
+            runStateStore: runStateStore);
+
+        await viewModel.InitializeAsync();
+
+        var restored = Assert.Single(viewModel.RepositoryResults);
+        Assert.Equal("PersistedRepo", restored.Name);
+        Assert.Equal(RepositoryResultStatus.Updated, restored.Status);
+        Assert.Equal(1, viewModel.RunProgressCompleted);
+        Assert.Equal(1, viewModel.RunProgressTotal);
+        Assert.Equal("Sync completed.", viewModel.CurrentProgressMessage);
+        Assert.Equal("Completed", viewModel.RunCompletionStatusText);
+        Assert.NotEqual("-", viewModel.LastSyncCompletedText);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_MarksPreviouslyRunningStateAsInterrupted()
+    {
+        var repository = Descriptor("Plugins", "PartialRepo");
+        var completedResult = RepoResultFor(repository, failed: false, newCommits: 1, diagnostic: null);
+        var runStateStore = new FakeRunStateStore
+        {
+            LoadedState = new PersistedRunState
+            {
+                LibraryRoot = TestRoot,
+                Status = PersistedRunStatus.Running,
+                StartedAt = DateTimeOffset.UtcNow.AddMinutes(-3),
+                CompletedRepositories = 1,
+                TotalRepositories = 2,
+                Message = "Completed PartialRepo.",
+                RepositoryResults = [PersistedRepositoryResult.FromViewModel(RepositoryResultViewModel.FromResult(completedResult, repository))]
+            }
+        };
+        var service = new FakeGitPullerSyncService(LoadResult(new GitPullerOptions(), [repository], ["Plugins"]));
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            service,
+            runStateStore: runStateStore);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Single(viewModel.RepositoryResults);
+        Assert.Equal(1, viewModel.RunProgressCompleted);
+        Assert.Equal(2, viewModel.RunProgressTotal);
+        Assert.Contains("interrupted", viewModel.RunStatusMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Interrupted", viewModel.RunCompletionStatusText);
+        Assert.Equal(PersistedRunStatus.Interrupted, Assert.Single(runStateStore.SavedStates).Status);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_RestoresCanceledRunStateAsCanceled()
+    {
+        var canceledAt = new DateTimeOffset(2026, 5, 30, 11, 20, 0, TimeSpan.Zero);
+        var runStateStore = new FakeRunStateStore
+        {
+            LoadedState = new PersistedRunState
+            {
+                LibraryRoot = TestRoot,
+                Status = PersistedRunStatus.Canceled,
+                StartedAt = canceledAt.AddMinutes(-1),
+                CompletedAt = canceledAt,
+                CompletedRepositories = 2,
+                TotalRepositories = 5,
+                Message = "Sync was canceled.",
+                ErrorMessage = "Sync was canceled."
+            }
+        };
+        var service = new FakeGitPullerSyncService(LoadResult(new GitPullerOptions(), [], []));
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            service,
+            runStateStore: runStateStore);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal("Sync canceled", viewModel.RunStatusTitle);
+        Assert.Equal("Canceled", viewModel.RunCompletionStatusText);
+        Assert.Equal("Canceled", viewModel.FooterRunStateText);
+        Assert.Contains("canceled", viewModel.RunStatusMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RunSyncAsync_PersistsRunStateProgressAndCompletion()
+    {
+        var repository = Descriptor("Plugins", "StatefulRepo");
+        var result = RepoResultFor(repository, failed: false, newCommits: 2, diagnostic: null);
+        var completedAt = DateTimeOffset.UtcNow;
+        var service = new FakeGitPullerSyncService(LoadResult(new GitPullerOptions(), [repository], ["Plugins"]));
+        service.RunAllAsyncHandler = (request, progress, _) =>
+        {
+            progress?.Report(GitPullerProgressEvent.RunStarted(request.Inventory.Repositories.Count));
+            progress?.Report(GitPullerProgressEvent.RepositoryCompleted(repository, result, 1, 1));
+            return Task.FromResult(new GitPullerRunResult
+            {
+                StartedAt = completedAt.AddMinutes(-1),
+                CompletedAt = completedAt,
+                RepositoryResults = [result],
+                LatestReportPath = Path.Combine(TestRoot, GitPullerReportWriter.LatestReportFileName)
+            });
+        };
+        var runStateStore = new FakeRunStateStore();
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            service,
+            runStateStore: runStateStore);
+
+        await viewModel.RunSyncAsync();
+
+        Assert.Contains(runStateStore.SavedStates, state => state.Status == PersistedRunStatus.Running);
+        var finalState = Assert.Single(runStateStore.SavedStates, state => state.Status == PersistedRunStatus.Completed);
+        Assert.Equal(1, finalState.CompletedRepositories);
+        Assert.Equal(1, finalState.TotalRepositories);
+        Assert.Equal("StatefulRepo", Assert.Single(finalState.RepositoryResults).Name);
+    }
+
+    [Fact]
     public async Task RunSyncAsync_KeepsRepositoryRowsAndShowsWarning_WhenRunCompletesWithWarning()
     {
         var libraryRoot = Path.Combine(TestRoot, "libraries", Guid.NewGuid().ToString("N"));
@@ -2434,11 +2692,16 @@ public sealed class MainShellViewModelTests
             return Task.FromResult(retryResult);
         };
 
-        var viewModel = new MainShellViewModel(TestRoot, service);
+        var runStateStore = new FakeRunStateStore();
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            service,
+            runStateStore: runStateStore);
         await viewModel.RunSyncAsync();
         var failedViewModel = Assert.Single(viewModel.RepositoryResults);
         Assert.Equal(RepositoryResultStatus.Failed, failedViewModel.Status);
         Assert.True(viewModel.RetrySelectedCommand.CanExecute(null));
+        runStateStore.SavedStates.Clear();
 
         await viewModel.RetrySelectedAsync();
 
@@ -2447,6 +2710,9 @@ public sealed class MainShellViewModelTests
         Assert.Equal(repository.Path, replacement.Path);
         Assert.Equal(RepositoryResultStatus.Updated, replacement.Status);
         Assert.Same(replacement, viewModel.SelectedResult);
+        Assert.Contains(runStateStore.SavedStates, state => state.Status == PersistedRunStatus.Running);
+        Assert.Equal(PersistedRunStatus.Completed, runStateStore.SavedStates[^1].Status);
+        Assert.Equal("Retry completed: RetryMe", runStateStore.SavedStates[^1].Message);
     }
 
     [Fact]
@@ -3218,6 +3484,22 @@ public sealed class MainShellViewModelTests
             SavedSettings = JsonAppSettingsService.Normalize(settings);
             Settings = SavedSettings;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeRunStateStore : IRunStateStore
+    {
+        public PersistedRunState? LoadedState { get; set; }
+        public List<PersistedRunState> SavedStates { get; } = [];
+
+        public PersistedRunState? Load(string libraryRoot)
+        {
+            return LoadedState;
+        }
+
+        public void Save(PersistedRunState state)
+        {
+            SavedStates.Add(state);
         }
     }
 

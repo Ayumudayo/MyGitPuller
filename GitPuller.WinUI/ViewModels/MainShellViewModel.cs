@@ -13,6 +13,7 @@ public sealed class MainShellViewModel : ObservableObject
     private readonly IRepositoryManagementService? repositoryManagementService;
     private readonly IFileSystemLauncher? launcher;
     private readonly IAppSettingsService? appSettingsService;
+    private readonly IRunStateStore? runStateStore;
     private readonly IRemoteLinkBuilder remoteLinkBuilder;
     private readonly IViewModelDispatcher dispatcher;
     private bool showCleanRepositories;
@@ -38,6 +39,9 @@ public sealed class MainShellViewModel : ObservableObject
     private int runProgressCompleted;
     private int runProgressTotal;
     private DateTimeOffset lastSyncCompletedAt;
+    private DateTimeOffset currentRunStartedAt;
+    private bool lastRunWasInterrupted;
+    private bool lastRunWasCanceled;
     private string currentProgressMessage = "Ready";
     private string runErrorMessage = string.Empty;
     private GitPullerLibraryLoadResult? currentLibraryLoad;
@@ -75,6 +79,7 @@ public sealed class MainShellViewModel : ObservableObject
         IRepositoryManagementService? repositoryManagementService = null,
         IFileSystemLauncher? launcher = null,
         IAppSettingsService? appSettingsService = null,
+        IRunStateStore? runStateStore = null,
         IRemoteLinkBuilder? remoteLinkBuilder = null)
         : this(
             libraryRoot,
@@ -86,6 +91,7 @@ public sealed class MainShellViewModel : ObservableObject
             repositoryManagementService,
             launcher,
             appSettingsService,
+            runStateStore,
             remoteLinkBuilder)
     {
     }
@@ -100,6 +106,7 @@ public sealed class MainShellViewModel : ObservableObject
         IRepositoryManagementService? repositoryManagementService = null,
         IFileSystemLauncher? launcher = null,
         IAppSettingsService? appSettingsService = null,
+        IRunStateStore? runStateStore = null,
         IRemoteLinkBuilder? remoteLinkBuilder = null)
     {
         this.libraryRoot = string.IsNullOrWhiteSpace(libraryRoot) ? string.Empty : libraryRoot;
@@ -107,6 +114,7 @@ public sealed class MainShellViewModel : ObservableObject
         this.repositoryManagementService = repositoryManagementService;
         this.launcher = launcher;
         this.appSettingsService = appSettingsService;
+        this.runStateStore = runStateStore;
         this.remoteLinkBuilder = remoteLinkBuilder ?? RemoteLinkBuilder.Instance;
         this.dispatcher = dispatcher ?? ImmediateViewModelDispatcher.Instance;
 
@@ -244,7 +252,11 @@ public sealed class MainShellViewModel : ObservableObject
     public bool HasRunStatus => !string.IsNullOrWhiteSpace(RunStatusMessage);
     public bool HasRunInfoStatus => HasRunStatus && !HasRunError;
     public string RunStatusTitle => HasRunError
-        ? "Sync failed"
+        ? lastRunWasCanceled
+            ? "Sync canceled"
+            : lastRunWasInterrupted
+            ? "Sync interrupted"
+            : "Sync failed"
         : IsRunning
             ? "Sync running"
             : "Sync status";
@@ -575,7 +587,11 @@ public sealed class MainShellViewModel : ObservableObject
         ? "-"
         : lastSyncCompletedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.CurrentCulture);
     public string RunCompletionStatusText => HasRunError
-        ? "Failed"
+        ? lastRunWasCanceled
+            ? "Canceled"
+            : lastRunWasInterrupted
+            ? "Interrupted"
+            : "Failed"
         : IsRunning
             ? "Running"
             : lastSyncCompletedAt == default
@@ -589,7 +605,11 @@ public sealed class MainShellViewModel : ObservableObject
     public string WarningFooterText => $"{WarningCount} warning";
     public string FailedFooterText => $"{FailedCount} failed";
     public string FooterRunStateText => HasRunError
-        ? "Needs review"
+        ? lastRunWasCanceled
+            ? "Canceled"
+            : lastRunWasInterrupted
+            ? "Interrupted"
+            : "Needs review"
         : IsRunning
             ? RunProgressText
             : HasAttentionItems
@@ -638,12 +658,15 @@ public sealed class MainShellViewModel : ObservableObject
         {
             await LoadAppSettingsAsync(cancellationToken);
             var loadResult = await LoadLibraryForCurrentRootAsync(resetResults: false, cancellationToken);
-            SetRunProgress(
-                0,
-                loadResult.Inventory.Repositories.Count,
-                loadResult.Inventory.Repositories.Count == 0
-                    ? "No repositories found in the selected library root."
-                    : $"Ready to run {loadResult.Inventory.Repositories.Count} repositories.");
+            if (!ApplyPersistedRunState(loadResult))
+            {
+                SetRunProgress(
+                    0,
+                    loadResult.Inventory.Repositories.Count,
+                    loadResult.Inventory.Repositories.Count == 0
+                        ? "No repositories found in the selected library root."
+                        : $"Ready to run {loadResult.Inventory.Repositories.Count} repositories.");
+            }
             hasInitialized = true;
         }
         catch (OperationCanceledException)
@@ -697,12 +720,15 @@ public sealed class MainShellViewModel : ObservableObject
             ClearLoadedRunState();
             ClearAddRepositoryMessages();
             ApplyLibraryLoadResult(loadResult, resetResults: true);
-            SetRunProgress(
-                0,
-                loadResult.Inventory.Repositories.Count,
-                loadResult.Inventory.Repositories.Count == 0
-                    ? "No repositories found in the selected library root."
-                    : $"Ready to run {loadResult.Inventory.Repositories.Count} repositories.");
+            if (!ApplyPersistedRunState(loadResult))
+            {
+                SetRunProgress(
+                    0,
+                    loadResult.Inventory.Repositories.Count,
+                    loadResult.Inventory.Repositories.Count == 0
+                        ? "No repositories found in the selected library root."
+                        : $"Ready to run {loadResult.Inventory.Repositories.Count} repositories.");
+            }
         }
         catch (OperationCanceledException)
         {
@@ -736,7 +762,9 @@ public sealed class MainShellViewModel : ObservableObject
             var request = loadResult.CreateRunRequest();
             currentRunRequest = request;
             runCompletionApplied = false;
+            currentRunStartedAt = DateTimeOffset.Now;
             SetRunProgress(0, request.Inventory.Repositories.Count, "Starting sync...");
+            PersistCurrentRunState(PersistedRunStatus.Running);
 
             deferRepositoryNavigationRefresh = true;
             var runResult = await syncService.RunAllAsync(
@@ -747,11 +775,13 @@ public sealed class MainShellViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            SetRunError("Sync was canceled.");
+            SetRunError("Sync was canceled.", canceled: true);
+            PersistCurrentRunState(PersistedRunStatus.Canceled, completedAt: DateTimeOffset.Now, errorMessage: RunErrorMessage);
         }
         catch (Exception ex)
         {
             SetRunError(ex.Message);
+            PersistCurrentRunState(PersistedRunStatus.Failed, completedAt: DateTimeOffset.Now, errorMessage: RunErrorMessage);
         }
         finally
         {
@@ -771,7 +801,9 @@ public sealed class MainShellViewModel : ObservableObject
         var resultToRetry = SelectedResult;
         IsRunning = true;
         ClearRunError();
+        currentRunStartedAt = DateTimeOffset.Now;
         SetRunProgress(0, 1, $"Retrying {resultToRetry.Name}...");
+        PersistCurrentRunState(PersistedRunStatus.Running);
 
         try
         {
@@ -784,11 +816,13 @@ public sealed class MainShellViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            SetRunError("Retry was canceled.");
+            SetRunError("Retry was canceled.", canceled: true);
+            PersistCurrentRunState(PersistedRunStatus.Canceled, completedAt: DateTimeOffset.Now, errorMessage: RunErrorMessage);
         }
         catch (Exception ex)
         {
             SetRunError(ex.Message);
+            PersistCurrentRunState(PersistedRunStatus.Failed, completedAt: DateTimeOffset.Now, errorMessage: RunErrorMessage);
         }
         finally
         {
@@ -1053,7 +1087,8 @@ public sealed class MainShellViewModel : ObservableObject
             dispatcher,
             new CoreRepositoryManagementService(),
             new WinUiFileSystemLauncher(),
-            appSettingsService);
+            appSettingsService,
+            new JsonRunStateStore());
     }
 
     public static MainShellViewModel CreateSample()
@@ -1613,6 +1648,7 @@ public sealed class MainShellViewModel : ObservableObject
                     progressEvent.CompletedRepositories,
                     progressEvent.TotalRepositories,
                     progressEvent.Message ?? "Sync started.");
+                PersistCurrentRunState(PersistedRunStatus.Running);
                 break;
 
             case GitPullerProgressEventKind.RepositoryStarted:
@@ -1622,6 +1658,7 @@ public sealed class MainShellViewModel : ObservableObject
                     progressEvent.Repository is null
                         ? "Running repository..."
                         : $"Running {progressEvent.Repository.Name}...");
+                PersistCurrentRunState(PersistedRunStatus.Running);
                 break;
 
             case GitPullerProgressEventKind.RepositoryCompleted:
@@ -1636,6 +1673,7 @@ public sealed class MainShellViewModel : ObservableObject
                     progressEvent.Repository is null
                         ? "Repository completed."
                         : $"Completed {progressEvent.Repository.Name}.");
+                PersistCurrentRunState(PersistedRunStatus.Running);
                 break;
 
             case GitPullerProgressEventKind.RunCompleted:
@@ -1677,7 +1715,129 @@ public sealed class MainShellViewModel : ObservableObject
             AppendReportPath(
                 GetRunCompletedMessage(runResult),
                 runResult.LatestReportPath));
+        PersistCurrentRunState(
+            string.IsNullOrWhiteSpace(runResult.ErrorMessage)
+                ? PersistedRunStatus.Completed
+                : PersistedRunStatus.Failed,
+            runResult.CompletedAt == default ? DateTimeOffset.Now : runResult.CompletedAt,
+            runResult.ErrorMessage,
+            runResult.WarningMessage);
         FlushDeferredRepositoryNavigationRefresh();
+    }
+
+    private bool ApplyPersistedRunState(GitPullerLibraryLoadResult loadResult)
+    {
+        if (runStateStore?.Load(loadResult.LibraryRoot) is not { } state
+            || !PathsEqual(state.LibraryRoot, loadResult.LibraryRoot))
+        {
+            return false;
+        }
+
+        RepositoryResults.Clear();
+        foreach (var result in state.RepositoryResults)
+        {
+            RepositoryResults.Add(result.ToViewModel());
+        }
+
+        SelectedResult = VisibleResults.FirstOrDefault();
+        SetLatestReportPath(state.LatestReportPath);
+        currentRunStartedAt = state.StartedAt;
+
+        if (state.CompletedAt is { } completedAt)
+        {
+            lastSyncCompletedAt = completedAt;
+            OnPropertyChanged(nameof(LastSyncCompletedText));
+        }
+
+        var totalRepositories = Math.Max(
+            Math.Max(0, state.TotalRepositories),
+            Math.Max(state.RepositoryResults.Count, state.CompletedRepositories));
+        var completedRepositories = Math.Clamp(
+            state.CompletedRepositories,
+            0,
+            totalRepositories == 0 ? int.MaxValue : totalRepositories);
+        var message = string.IsNullOrWhiteSpace(state.Message)
+            ? GetDefaultPersistedRunMessage(state.Status)
+            : state.Message;
+
+        switch (state.Status)
+        {
+            case PersistedRunStatus.Running:
+                SetRunProgress(
+                    completedRepositories,
+                    totalRepositories,
+                    $"Previous sync was interrupted. Last saved progress: {message}");
+                SetRunError(
+                    $"Previous sync was interrupted before completion. Last saved progress: {message}",
+                    interrupted: true);
+                PersistCurrentRunState(
+                    PersistedRunStatus.Interrupted,
+                    DateTimeOffset.Now,
+                    RunErrorMessage);
+                break;
+
+            case PersistedRunStatus.Failed:
+            case PersistedRunStatus.Canceled:
+            case PersistedRunStatus.Interrupted:
+                SetRunProgress(completedRepositories, totalRepositories, message);
+                SetRunError(
+                    string.IsNullOrWhiteSpace(state.ErrorMessage)
+                        ? message
+                        : state.ErrorMessage,
+                    interrupted: state.Status == PersistedRunStatus.Interrupted,
+                    canceled: state.Status == PersistedRunStatus.Canceled);
+                break;
+
+            default:
+                SetRunProgress(completedRepositories, totalRepositories, message);
+                break;
+        }
+
+        return true;
+    }
+
+    private static string GetDefaultPersistedRunMessage(PersistedRunStatus status)
+    {
+        return status switch
+        {
+            PersistedRunStatus.Running => "Sync was running.",
+            PersistedRunStatus.Failed => "Sync failed.",
+            PersistedRunStatus.Canceled => "Sync was canceled.",
+            PersistedRunStatus.Interrupted => "Sync was interrupted.",
+            _ => "Sync completed."
+        };
+    }
+
+    private void PersistCurrentRunState(
+        PersistedRunStatus status,
+        DateTimeOffset? completedAt = null,
+        string? errorMessage = null,
+        string? warningMessage = null)
+    {
+        if (runStateStore is null || string.IsNullOrWhiteSpace(LibraryRoot))
+        {
+            return;
+        }
+
+        var startedAt = currentRunStartedAt == default
+            ? DateTimeOffset.Now
+            : currentRunStartedAt;
+        runStateStore.Save(new PersistedRunState
+        {
+            LibraryRoot = LibraryRoot,
+            Status = status,
+            StartedAt = startedAt,
+            CompletedAt = completedAt,
+            CompletedRepositories = RunProgressCompleted,
+            TotalRepositories = RunProgressTotal,
+            Message = CurrentProgressMessage,
+            ErrorMessage = errorMessage,
+            WarningMessage = warningMessage,
+            LatestReportPath = string.IsNullOrWhiteSpace(OpenableLatestReportPath) ? null : OpenableLatestReportPath,
+            RepositoryResults = RepositoryResults
+                .Select(PersistedRepositoryResult.FromViewModel)
+                .ToList()
+        });
     }
 
     private static string GetRunCompletedMessage(GitPullerRunResult runResult)
@@ -1698,6 +1858,7 @@ public sealed class MainShellViewModel : ObservableObject
     {
         UpsertRepositoryResult(retryResult, FindRepositoryDescriptor(retryResult.Path));
         SetRunProgress(1, 1, $"Retry completed: {retryResult.Name}");
+        PersistCurrentRunState(PersistedRunStatus.Completed, completedAt: retryResult.CompletedAt);
     }
 
     private void ClearLoadedRunState()
@@ -1705,6 +1866,7 @@ public sealed class MainShellViewModel : ObservableObject
         currentLibraryLoad = null;
         currentRunRequest = null;
         runCompletionApplied = false;
+        currentRunStartedAt = default;
         SetLatestReportPath(null);
 
         Categories.Clear();
@@ -1875,8 +2037,10 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(FooterRunStateText));
     }
 
-    private void SetRunError(string message)
+    private void SetRunError(string message, bool interrupted = false, bool canceled = false)
     {
+        lastRunWasInterrupted = interrupted;
+        lastRunWasCanceled = canceled;
         runErrorMessage = string.IsNullOrWhiteSpace(message)
             ? "The sync failed without an error message."
             : message;
@@ -1892,8 +2056,19 @@ public sealed class MainShellViewModel : ObservableObject
 
     private void ClearRunError()
     {
+        var wasInterrupted = lastRunWasInterrupted;
+        var wasCanceled = lastRunWasCanceled;
+        lastRunWasInterrupted = false;
+        lastRunWasCanceled = false;
         if (string.IsNullOrEmpty(runErrorMessage))
         {
+            if (wasInterrupted || wasCanceled)
+            {
+                OnPropertyChanged(nameof(RunStatusTitle));
+                OnPropertyChanged(nameof(RunCompletionStatusText));
+                OnPropertyChanged(nameof(FooterRunStateText));
+            }
+
             return;
         }
 
