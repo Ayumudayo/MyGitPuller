@@ -715,21 +715,32 @@ public sealed class MainShellViewModelTests
     [Fact]
     public void AddRepositoryDialog_UsesCategoryDropdownOptionalFolderNameAndNoRootInput()
     {
-        var codeBehind = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml.cs");
-        var methodStart = codeBehind.IndexOf("private async Task ShowAddRepositoryDialogAsync()", StringComparison.Ordinal);
-        var methodEnd = codeBehind.IndexOf("private async Task ShowChangeLibraryRootDialogAsync()", StringComparison.Ordinal);
-        Assert.True(methodStart >= 0);
-        Assert.True(methodEnd > methodStart);
-        var method = codeBehind[methodStart..methodEnd];
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "Dialogs", "AddRepositoryDialog.xaml");
+        var codeBehind = ReadRepositoryFile("GitPuller.WinUI", "Views", "Dialogs", "AddRepositoryDialog.xaml.cs");
 
-        Assert.DoesNotContain("Header = \"Library root\"", method, StringComparison.Ordinal);
-        Assert.DoesNotContain("Title = \"Add repository from URL\"", method, StringComparison.Ordinal);
-        Assert.Contains("Title = \"Add repository\"", method, StringComparison.Ordinal);
-        Assert.Contains("ComboBox", method, StringComparison.Ordinal);
-        Assert.Contains("Optional", method, StringComparison.Ordinal);
-        Assert.Contains("local folder name override", method, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Current library root", method, StringComparison.Ordinal);
-        Assert.Contains("TextWrapping = TextWrapping.Wrap", method, StringComparison.Ordinal);
+        Assert.Contains("Title=\"Add repository\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("Add repository from URL", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("Header=\"Library root\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"UrlBox\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"CategoryBox\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"NewCategoryButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"FolderBox\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Optional", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"FolderHelpIcon\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Target path preview", xaml, StringComparison.Ordinal);
+        Assert.Contains("Current library root", xaml, StringComparison.Ordinal);
+        Assert.Contains("TextWrapping=\"Wrap\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("CloneRepositoryAsync", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("UrlBox.Text = viewModel.AddRepositoryUrl", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("FolderBox.Text = viewModel.AddRepositoryFolderName", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("CurrentRootText.Text = viewModel.LibraryRoot", codeBehind, StringComparison.Ordinal);
+        Assert.Contains(nameof(MainShellViewModel.CanCloneRepository), codeBehind, StringComparison.Ordinal);
+        Assert.Contains("PreviewText.Text = viewModel.AddRepositoryTargetPathPreview", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("DiagnosticTitleText.Text = viewModel.AddRepositoryDiagnosticTitle", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("DiagnosticExplanationText.Text = viewModel.AddRepositoryDiagnosticExplanation", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("DiagnosticEvidenceText.Text = viewModel.AddRepositoryDiagnosticEvidence", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ErrorBar.IsOpen = viewModel.HasAddRepositoryError", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ErrorBar.Message = viewModel.AddRepositoryErrorMessage", codeBehind, StringComparison.Ordinal);
     }
 
     [Fact]
