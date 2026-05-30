@@ -1,0 +1,31 @@
+<ContentDialog
+    x:Class="GitPuller_WinUI.Views.Dialogs.ChangeLibraryRootDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="Change library root"
+    PrimaryButtonText="Use root"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    mc:Ignorable="d">
+    <StackPanel Spacing="10">
+        <ComboBox
+            x:Name="RecentRootsBox"
+            Header="Recent roots"
+            PlaceholderText="Select a recent library root"
+            HorizontalAlignment="Stretch" />
+        <TextBox
+            x:Name="LibraryRootBox"
+            Header="Library root"
+            TextWrapping="Wrap" />
+        <InfoBar
+            x:Name="RootErrorBar"
+            Severity="Error"
+            Title="Library root error"
+            IsOpen="False" />
+        <Button
+            x:Name="BrowseButton"
+            Content="Browse" />
+    </StackPanel>
+</ContentDialog>

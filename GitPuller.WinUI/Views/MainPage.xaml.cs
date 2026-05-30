@@ -4,6 +4,7 @@ using Windows.Foundation;
 using Windows.Storage.Pickers;
 using GitPuller_WinUI.Services;
 using GitPuller_WinUI.ViewModels;
+using GitPuller_WinUI.Views.Dialogs;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -485,129 +486,8 @@ public sealed partial class MainPage : Page
 
     private async Task ShowChangeLibraryRootDialogAsync()
     {
-        var rootBox = new TextBox
-        {
-            Header = "Library root",
-            Text = ViewModel.LibraryRoot,
-            TextWrapping = TextWrapping.Wrap
-        };
-        var recentRoots = ViewModel.RecentLibraryRoots.ToArray();
-        var recentRootBox = new ComboBox
-        {
-            Header = "Recent roots",
-            ItemsSource = recentRoots,
-            PlaceholderText = "Select a recent library root",
-            HorizontalAlignment = HorizontalAlignment.Stretch
-        };
-        recentRootBox.SelectedItem = recentRoots.FirstOrDefault(root =>
-            string.Equals(root, ViewModel.LibraryRoot, StringComparison.OrdinalIgnoreCase));
-        var browseButton = new Button
-        {
-            Content = "Browse"
-        };
-        var rootErrorBar = new InfoBar
-        {
-            Severity = InfoBarSeverity.Error,
-            Title = "Library root error",
-            IsOpen = false
-        };
-        browseButton.Click += async (_, _) =>
-        {
-            var selectedPath = await PickLibraryRootAsync();
-            if (!string.IsNullOrWhiteSpace(selectedPath))
-            {
-                rootBox.Text = selectedPath;
-            }
-        };
-        recentRootBox.SelectionChanged += (_, _) =>
-        {
-            if (recentRootBox.SelectedItem is string selectedRoot)
-            {
-                rootBox.Text = selectedRoot;
-            }
-        };
-
-        var content = new StackPanel
-        {
-            Spacing = 10,
-            Children =
-            {
-                recentRootBox,
-                rootBox,
-                rootErrorBar,
-                browseButton
-            }
-        };
-        var dialog = new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            Title = "Change library root",
-            PrimaryButtonText = "Use root",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            Content = content
-        };
-
-        void UpdateRootDialogState()
-        {
-            var hasBlankRoot = string.IsNullOrWhiteSpace(rootBox.Text);
-            dialog.IsPrimaryButtonEnabled = ViewModel.CanChangeLibraryRoot
-                && !hasBlankRoot;
-            rootErrorBar.IsOpen = hasBlankRoot || ViewModel.HasRunError;
-            rootErrorBar.Message = hasBlankRoot
-                ? "Library root is required."
-                : ViewModel.RunErrorMessage;
-        }
-
-        rootBox.TextChanged += (_, _) =>
-        {
-            UpdateRootDialogState();
-        };
-
-        PropertyChangedEventHandler propertyChanged = (_, args) =>
-        {
-            if (args.PropertyName is nameof(MainShellViewModel.CanChangeLibraryRoot)
-                or nameof(MainShellViewModel.HasRunError)
-                or nameof(MainShellViewModel.RunErrorMessage))
-            {
-                UpdateRootDialogState();
-            }
-        };
-
-        dialog.PrimaryButtonClick += async (_, args) =>
-        {
-            var deferral = args.GetDeferral();
-            try
-            {
-                if (string.IsNullOrWhiteSpace(rootBox.Text))
-                {
-                    rootErrorBar.IsOpen = true;
-                    rootErrorBar.Message = "Library root is required.";
-                    args.Cancel = true;
-                    UpdateRootDialogState();
-                    return;
-                }
-
-                await ViewModel.ChangeLibraryRootAsync(rootBox.Text);
-                args.Cancel = ViewModel.HasRunError;
-                UpdateRootDialogState();
-            }
-            finally
-            {
-                deferral.Complete();
-            }
-        };
-
-        ViewModel.PropertyChanged += propertyChanged;
-        try
-        {
-            UpdateRootDialogState();
-            await dialog.ShowAsync();
-        }
-        finally
-        {
-            ViewModel.PropertyChanged -= propertyChanged;
-        }
+        using var dialog = new ChangeLibraryRootDialog(ViewModel, XamlRoot, PickLibraryRootAsync);
+        await dialog.ShowAsync();
     }
 
     private async Task<string?> PickLibraryRootAsync()

@@ -709,7 +709,7 @@ public sealed class MainShellViewModelTests
         Assert.Contains("OpenLibraryRootButton", xaml, StringComparison.Ordinal);
         Assert.True(xaml.IndexOf("Text=\"Last sync\"", StringComparison.Ordinal) < xaml.IndexOf("Command=\"{Binding RunSyncCommand}\"", StringComparison.Ordinal));
         Assert.Contains("FolderPicker", codeBehind, StringComparison.Ordinal);
-        Assert.Contains("ChangeLibraryRootAsync", codeBehind, StringComparison.Ordinal);
+        Assert.True(File.Exists(RepositoryPath("GitPuller.WinUI", "Views", "Dialogs", "ChangeLibraryRootDialog.xaml.cs")));
     }
 
     [Fact]
@@ -733,22 +733,68 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
-    public void ChangeLibraryRootDialog_DisablesBlankSubmitAndShowsInlineErrors()
+    public void ChangeLibraryRootDialog_HasDedicatedViewFiles()
     {
-        var codeBehind = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml.cs");
-        var methodStart = codeBehind.IndexOf("private async Task ShowChangeLibraryRootDialogAsync()", StringComparison.Ordinal);
-        var methodEnd = codeBehind.IndexOf("private async Task<string?> PickLibraryRootAsync()", StringComparison.Ordinal);
-        Assert.True(methodStart >= 0);
-        Assert.True(methodEnd > methodStart);
-        var method = codeBehind[methodStart..methodEnd];
+        Assert.True(File.Exists(RepositoryPath("GitPuller.WinUI", "Views", "Dialogs", "ChangeLibraryRootDialog.xaml")));
+        Assert.True(File.Exists(RepositoryPath("GitPuller.WinUI", "Views", "Dialogs", "ChangeLibraryRootDialog.xaml.cs")));
+    }
 
-        Assert.Contains("rootErrorBar", method, StringComparison.Ordinal);
-        Assert.Contains("dialog.IsPrimaryButtonEnabled = ViewModel.CanChangeLibraryRoot", method, StringComparison.Ordinal);
-        Assert.Contains("hasBlankRoot", method, StringComparison.Ordinal);
-        Assert.Contains("&& !hasBlankRoot", method, StringComparison.Ordinal);
-        Assert.Contains("Library root is required", method, StringComparison.Ordinal);
-        Assert.Contains("args.Cancel = true", method, StringComparison.Ordinal);
-        Assert.Contains(nameof(MainShellViewModel.RunErrorMessage), method, StringComparison.Ordinal);
+    [Fact]
+    public void LibraryRootDialogState_BlankRootDisablesSubmitAndShowsRequiredMessage()
+    {
+        var state = LibraryRootDialogState.Create(
+            "   ",
+            canChangeLibraryRoot: true,
+            hasRunError: false,
+            runErrorMessage: null);
+
+        Assert.False(state.IsPrimaryButtonEnabled);
+        Assert.True(state.IsErrorOpen);
+        Assert.Equal("Library root is required.", state.ErrorMessage);
+    }
+
+    [Fact]
+    public void LibraryRootDialogState_RunErrorShowsRunMessageWhenRootIsPresent()
+    {
+        var state = LibraryRootDialogState.Create(
+            @"E:\Repos",
+            canChangeLibraryRoot: true,
+            hasRunError: true,
+            runErrorMessage: "Candidate load failed");
+
+        Assert.True(state.IsPrimaryButtonEnabled);
+        Assert.True(state.IsErrorOpen);
+        Assert.Equal("Candidate load failed", state.ErrorMessage);
+    }
+
+    [Fact]
+    public void LibraryRootDialogState_LocalErrorShowsPickerFailureWithoutEnablingBlankRoot()
+    {
+        var state = LibraryRootDialogState.Create(
+            string.Empty,
+            canChangeLibraryRoot: true,
+            hasRunError: false,
+            runErrorMessage: null,
+            localErrorMessage: "Folder picker failed");
+
+        Assert.False(state.IsPrimaryButtonEnabled);
+        Assert.True(state.IsErrorOpen);
+        Assert.Equal("Folder picker failed", state.ErrorMessage);
+    }
+
+    [Fact]
+    public void LibraryRootDialogState_RunErrorTakesPriorityOverStaleLocalError()
+    {
+        var state = LibraryRootDialogState.Create(
+            @"E:\Repos",
+            canChangeLibraryRoot: true,
+            hasRunError: true,
+            runErrorMessage: "Candidate load failed",
+            localErrorMessage: "Folder picker failed");
+
+        Assert.True(state.IsPrimaryButtonEnabled);
+        Assert.True(state.IsErrorOpen);
+        Assert.Equal("Candidate load failed", state.ErrorMessage);
     }
 
     [Fact]
@@ -2806,8 +2852,12 @@ public sealed class MainShellViewModelTests
 
     private static string ReadRepositoryFile(params string[] relativeSegments)
     {
-        var path = Path.Combine([RepositoryRoot, .. relativeSegments]);
-        return File.ReadAllText(path);
+        return File.ReadAllText(RepositoryPath(relativeSegments));
+    }
+
+    private static string RepositoryPath(params string[] relativeSegments)
+    {
+        return Path.Combine([RepositoryRoot, .. relativeSegments]);
     }
 
     private static int CountOccurrences(string text, string value)
