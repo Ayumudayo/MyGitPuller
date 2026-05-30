@@ -159,7 +159,7 @@ public sealed class CoreGitPullerSyncService : IGitPullerSyncService
         var config = await configStore.LoadAsync(libraryRoot, cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var inventory = scanner.ScanLibraryRoot(config.LibraryRoot);
+        var inventory = scanner.ScanLibraryRoot(config.LibraryRoot, cancellationToken);
         return new GitPullerLibraryLoadResult(
             config.LibraryRoot,
             config.DefaultOptions,

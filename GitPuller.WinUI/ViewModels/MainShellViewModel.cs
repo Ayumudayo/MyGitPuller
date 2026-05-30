@@ -1421,7 +1421,6 @@ public sealed class MainShellViewModel : ObservableObject
         try
         {
             var loadResult = await operation();
-            cancellationToken.ThrowIfCancellationRequested();
             ApplyLibraryLoadResult(loadResult, resetResults: false);
             SetRemovedRepositoryStatus(successMessage);
         }

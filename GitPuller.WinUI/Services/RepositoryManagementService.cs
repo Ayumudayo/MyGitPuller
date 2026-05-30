@@ -106,6 +106,7 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         ArgumentNullException.ThrowIfNull(options);
 
         var config = await configStore.LoadAsync(request.LibraryRoot, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         var normalizedRequest = request with { LibraryRoot = config.LibraryRoot };
         var cloneResult = await Task.Run(
             () => cloneService.Clone(normalizedRequest, options, cancellationToken),
@@ -132,8 +133,8 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
             throw;
         }
 
-        var savedConfig = await configStore.LoadAsync(config.LibraryRoot, cancellationToken).ConfigureAwait(false);
-        return new RepositoryAddWorkflowResult(cloneResult, CreateLoadResult(savedConfig));
+        var savedConfig = await configStore.LoadAsync(config.LibraryRoot, CancellationToken.None).ConfigureAwait(false);
+        return new RepositoryAddWorkflowResult(cloneResult, CreateLoadResult(savedConfig, CancellationToken.None));
     }
 
     public async Task<GitPullerLibraryLoadResult> SaveDefaultOptionsAsync(
@@ -145,11 +146,13 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         ArgumentNullException.ThrowIfNull(options);
 
         var config = await configStore.LoadAsync(libraryRoot, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        var inventory = scanner.ScanLibraryRoot(config.LibraryRoot, cancellationToken);
         config.DefaultOptions = options;
         await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
 
-        var savedConfig = await configStore.LoadAsync(config.LibraryRoot, cancellationToken).ConfigureAwait(false);
-        return CreateLoadResult(savedConfig);
+        var savedConfig = await configStore.LoadAsync(config.LibraryRoot, CancellationToken.None).ConfigureAwait(false);
+        return CreateLoadResult(savedConfig, inventory);
     }
 
     public async Task<GitPullerLibraryLoadResult> RestoreRepositoryAsync(
@@ -161,6 +164,7 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         ArgumentNullException.ThrowIfNull(removedRepository);
 
         var config = await configStore.LoadAsync(libraryRoot, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         var restored = removalService.RestoreRepository(config, removedRepository);
         try
         {
@@ -176,8 +180,8 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
             throw;
         }
 
-        var savedConfig = await configStore.LoadAsync(config.LibraryRoot, cancellationToken).ConfigureAwait(false);
-        return CreateLoadResult(savedConfig);
+        var savedConfig = await configStore.LoadAsync(config.LibraryRoot, CancellationToken.None).ConfigureAwait(false);
+        return CreateLoadResult(savedConfig, CancellationToken.None);
     }
 
     public async Task<GitPullerLibraryLoadResult> RestoreRepositoryAsAsync(
@@ -195,6 +199,7 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         }
 
         var config = await configStore.LoadAsync(libraryRoot, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         var validationPreview = cloneService.Preview(new RepositoryAddRequest(
             config.LibraryRoot,
             category,
@@ -224,8 +229,8 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
             throw;
         }
 
-        var savedConfig = await configStore.LoadAsync(config.LibraryRoot, cancellationToken).ConfigureAwait(false);
-        return CreateLoadResult(savedConfig);
+        var savedConfig = await configStore.LoadAsync(config.LibraryRoot, CancellationToken.None).ConfigureAwait(false);
+        return CreateLoadResult(savedConfig, CancellationToken.None);
     }
 
     public async Task<GitPullerLibraryLoadResult> PermanentlyDeleteRepositoryAsync(
@@ -237,6 +242,7 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         ArgumentNullException.ThrowIfNull(removedRepository);
 
         var config = await configStore.LoadAsync(libraryRoot, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         var removedPath = removalService.PreparePermanentDelete(config, removedRepository);
         await configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
 
@@ -264,8 +270,8 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
             }
         }
 
-        var savedConfig = await configStore.LoadAsync(config.LibraryRoot, cancellationToken).ConfigureAwait(false);
-        return CreateLoadResult(savedConfig);
+        var savedConfig = await configStore.LoadAsync(config.LibraryRoot, CancellationToken.None).ConfigureAwait(false);
+        return CreateLoadResult(savedConfig, CancellationToken.None);
     }
 
     private async Task<Exception?> TryRestorePermanentDeleteMetadataAsync(
@@ -284,9 +290,18 @@ public sealed class CoreRepositoryManagementService : IRepositoryManagementServi
         }
     }
 
-    private GitPullerLibraryLoadResult CreateLoadResult(LibraryConfig config)
+    private GitPullerLibraryLoadResult CreateLoadResult(
+        LibraryConfig config,
+        CancellationToken cancellationToken)
     {
-        var inventory = scanner.ScanLibraryRoot(config.LibraryRoot);
+        var inventory = scanner.ScanLibraryRoot(config.LibraryRoot, cancellationToken);
+        return CreateLoadResult(config, inventory);
+    }
+
+    private static GitPullerLibraryLoadResult CreateLoadResult(
+        LibraryConfig config,
+        RepositoryInventory inventory)
+    {
         return new GitPullerLibraryLoadResult(
             config.LibraryRoot,
             config.DefaultOptions,

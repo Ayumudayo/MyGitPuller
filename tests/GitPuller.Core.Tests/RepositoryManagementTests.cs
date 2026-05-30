@@ -472,6 +472,250 @@ public sealed class RepositoryManagementTests : IDisposable
     }
 
     [Fact]
+    public void ScanLibraryRoot_WithCanceledToken_ThrowsOperationCanceledException()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        CreateRepositoryDirectory(libraryRoot, "Plugins", "RepoA");
+        var scanner = new GitRepositoryScanner();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        var exception = Assert.Throws<OperationCanceledException>(() =>
+            scanner.ScanLibraryRoot(libraryRoot, cancellationTokenSource.Token));
+
+        Assert.Equal(cancellationTokenSource.Token, exception.CancellationToken);
+    }
+
+    [Fact]
+    public void ScanLibraryRoot_ReadsOriginRemoteUrlFromGitConfig()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var repositoryPath = CreateRepositoryDirectory(libraryRoot, "Plugins", "RepoA");
+        var expectedRemoteUrl = "https://github.com/example/repo-a.git";
+        File.WriteAllText(
+            Path.Combine(repositoryPath, ".git", "config"),
+            $"""
+            [core]
+                repositoryformatversion = 0
+
+              [remote "upstream"]
+                url = https://github.com/example/upstream.git
+
+              [remote "origin"]
+            	url	=	{expectedRemoteUrl}
+            """);
+
+        var scanner = new GitRepositoryScanner();
+        var inventory = scanner.ScanLibraryRoot(libraryRoot);
+
+        var repository = Assert.Single(inventory.Repositories);
+        Assert.Equal(expectedRemoteUrl, repository.RemoteUrl);
+    }
+
+    [Fact]
+    public void ScanLibraryRoot_ReturnsNullRemoteUrl_WhenGitConfigHasNoOriginRemote()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var repositoryPath = CreateRepositoryDirectory(libraryRoot, "Plugins", "RepoA");
+        File.WriteAllText(
+            Path.Combine(repositoryPath, ".git", "config"),
+            """
+            [remote "upstream"]
+                url = https://github.com/example/upstream.git
+            """);
+
+        var scanner = new GitRepositoryScanner();
+        var inventory = scanner.ScanLibraryRoot(libraryRoot);
+
+        var repository = Assert.Single(inventory.Repositories);
+        Assert.Null(repository.RemoteUrl);
+    }
+
+    [Fact]
+    public void ScanLibraryRoot_ReturnsNullRemoteUrl_WhenGitConfigIsMalformed()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var repositoryPath = CreateRepositoryDirectory(libraryRoot, "Plugins", "RepoA");
+        File.WriteAllText(
+            Path.Combine(repositoryPath, ".git", "config"),
+            """
+            [remote "origin"
+                url = https://github.com/example/repo-a.git
+            """);
+
+        var scanner = new GitRepositoryScanner();
+        var inventory = scanner.ScanLibraryRoot(libraryRoot);
+
+        var repository = Assert.Single(inventory.Repositories);
+        Assert.Null(repository.RemoteUrl);
+    }
+
+    [Fact]
+    public void ScanLibraryRoot_ReadsOriginRemoteUrlFromResolvedGitDirFile()
+    {
+        var libraryRoot = Path.Combine(tempRoot, "Library");
+        var repositoryPath = Path.Combine(libraryRoot, "Plugins", "RepoA");
+        var gitDirPath = Path.Combine(tempRoot, "ExternalGitDirs", "RepoA.git");
+        Directory.CreateDirectory(repositoryPath);
+        Directory.CreateDirectory(gitDirPath);
+        File.WriteAllText(Path.Combine(repositoryPath, ".git"), $"gitdir: {gitDirPath}");
+        File.WriteAllText(
+            Path.Combine(gitDirPath, "config"),
+            """
+            [remote "origin"]
+                url = git@github.com:example/repo-a.git
+            """);
+
+        var scanner = new GitRepositoryScanner();
+        var inventory = scanner.ScanLibraryRoot(libraryRoot);
+
+        var repository = Assert.Single(inventory.Repositories);
+        Assert.Equal("git@github.com:example/repo-a.git", repository.RemoteUrl);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("[remote \"origin\"\n    url = https://github.com/example/repo-a.git")]
+    [InlineData("[remote \"upstream\"]\n    url = https://github.com/example/repo-a.git")]
+    public void TryParseOriginRemoteUrl_ReturnsNull_WhenOriginUrlIsUnavailable(string gitConfigText)
+    {
+        var remoteUrl = GitRepositoryScanner.TryParseOriginRemoteUrl(gitConfigText);
+
+        Assert.Null(remoteUrl);
+    }
+
+    [Theory]
+    [InlineData("[remote \"origin\"]\n    url = \"https://github.com/example/repo-a.git\"", "https://github.com/example/repo-a.git")]
+    [InlineData("[remote \"origin\"]\n    url = https://github.com/example/repo-a.git ; local comment", "https://github.com/example/repo-a.git")]
+    [InlineData("[remote \"origin\"]\n    url = https://github.com/example/repo-a.git # local comment", "https://github.com/example/repo-a.git")]
+    [InlineData("[remote \"origin\"]\n    url = https://github.com/example/repo-a.git#local-comment", "https://github.com/example/repo-a.git")]
+    [InlineData("[remote \"origin\"]\n    url = https://github.com/example/repo-a.git;local-comment", "https://github.com/example/repo-a.git")]
+    public void TryParseOriginRemoteUrl_NormalizesGitConfigValueSyntax(
+        string gitConfigText,
+        string expectedRemoteUrl)
+    {
+        var remoteUrl = GitRepositoryScanner.TryParseOriginRemoteUrl(gitConfigText);
+
+        Assert.Equal(expectedRemoteUrl, remoteUrl);
+    }
+
+    [Fact]
+    public void TryParseOriginRemoteUrl_JoinsContinuedUrlLines()
+    {
+        var remoteUrl = GitRepositoryScanner.TryParseOriginRemoteUrl(
+            """
+            [remote "origin"]
+                url = https://github.com/example/repo-\
+            a.git
+            """);
+
+        Assert.Equal("https://github.com/example/repo-a.git", remoteUrl);
+    }
+
+    [Fact]
+    public void TryParseOriginRemoteUrl_AllowsSectionHeaderTrailingComment()
+    {
+        var remoteUrl = GitRepositoryScanner.TryParseOriginRemoteUrl(
+            """
+            [remote "origin"] ; local comment
+                url = https://github.com/example/repo-a.git
+            """);
+
+        Assert.Equal("https://github.com/example/repo-a.git", remoteUrl);
+    }
+
+    [Fact]
+    public void TryParseOriginRemoteUrl_UsesFirstOriginUrlValue()
+    {
+        var remoteUrl = GitRepositoryScanner.TryParseOriginRemoteUrl(
+            """
+            [remote "origin"]
+                url = https://github.com/example/old.git
+                url = https://github.com/example/new.git
+            """);
+
+        Assert.Equal("https://github.com/example/old.git", remoteUrl);
+    }
+
+    [Fact]
+    public void TryParseOriginRemoteUrl_ReturnsNullForUnsupportedQuotedEscape()
+    {
+        var remoteUrl = GitRepositoryScanner.TryParseOriginRemoteUrl(
+            """
+            [remote "origin"]
+                url = "ssh://user@host/path\qname.git"
+            """);
+
+        Assert.Null(remoteUrl);
+    }
+
+    [Fact]
+    public void TryParseOriginRemoteUrl_ReturnsNullForUnsupportedQuotedEscapeOutsideOriginSection()
+    {
+        var remoteUrl = GitRepositoryScanner.TryParseOriginRemoteUrl(
+            """
+            [remote "origin"]
+                url = https://github.com/example/repo-a.git
+            [core]
+                editor = "bad\qescape"
+            """);
+
+        Assert.Null(remoteUrl);
+    }
+
+    [Fact]
+    public void TryParseOriginRemoteUrl_ReturnsNullWhenConfigContainsMalformedSectionAfterOrigin()
+    {
+        var remoteUrl = GitRepositoryScanner.TryParseOriginRemoteUrl(
+            """
+            [remote "origin"]
+                url = https://github.com/example/repo-a.git
+            [bad
+                value = ignored
+            """);
+
+        Assert.Null(remoteUrl);
+    }
+
+    [Fact]
+    public void TryParseOriginRemoteUrl_AllowsEmptyValuesOutsideOriginUrl()
+    {
+        var remoteUrl = GitRepositoryScanner.TryParseOriginRemoteUrl(
+            """
+            [core]
+                autocrlf =
+            [remote "origin"]
+                url = https://github.com/example/repo-a.git
+            """);
+
+        Assert.Equal("https://github.com/example/repo-a.git", remoteUrl);
+    }
+
+    [Fact]
+    public void TryParseOriginRemoteUrl_AcceptsDottedRemoteOriginSection()
+    {
+        var remoteUrl = GitRepositoryScanner.TryParseOriginRemoteUrl(
+            """
+            [remote.ORIGIN]
+                url = https://github.com/example/repo-a.git
+            """);
+
+        Assert.Equal("https://github.com/example/repo-a.git", remoteUrl);
+    }
+
+    [Fact]
+    public void TryParseOriginRemoteUrl_DoesNotMatchDifferentlyCasedOriginRemoteName()
+    {
+        var remoteUrl = GitRepositoryScanner.TryParseOriginRemoteUrl(
+            """
+            [remote "Origin"]
+                url = https://github.com/example/repo-a.git
+            """);
+
+        Assert.Null(remoteUrl);
+    }
+
+    [Fact]
     public void Preview_DerivesRepositoryNameCategoryAndTargetPath_FromHttpsUrl()
     {
         var libraryRoot = Path.Combine(tempRoot, "Library");

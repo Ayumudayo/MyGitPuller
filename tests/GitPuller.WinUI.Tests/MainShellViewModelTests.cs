@@ -1130,6 +1130,36 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task RemovedRepositoryActions_ApplyCommittedResult_WhenCancellationArrivesAfterServiceCompletes()
+    {
+        var restoreRecord = RemovedRecord("RestoreAfterCancel");
+        var restoredRepository = Descriptor("Plugins", "RestoreAfterCancel");
+        var repositoryService = new FakeRepositoryManagementService();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        repositoryService.RestoreHandler = (_, _, _) =>
+        {
+            cancellationTokenSource.Cancel();
+            return Task.FromResult(LoadResult(new GitPullerOptions(), [restoredRepository], ["Plugins"]));
+        };
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            [new CategoryNavigationItemViewModel("Plugins", Path.Combine(TestRoot, "Plugins"), 0, 0)],
+            [],
+            [RemovedRepositoryViewModel.FromRecord(restoreRecord, _ => true, _ => false)],
+            repositoryManagementService: repositoryService);
+
+        await viewModel.RestoreRemovedRepositoryAsync(
+            viewModel.RemovedRepositories[0],
+            cancellationTokenSource.Token);
+
+        Assert.True(cancellationTokenSource.IsCancellationRequested);
+        Assert.False(viewModel.HasRemovedRepositoryError);
+        Assert.Contains("Restored", viewModel.RemovedRepositoryStatusMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(viewModel.RemovedRepositories);
+        Assert.Equal(1, Assert.Single(viewModel.Categories, category => category.Name == "Plugins").RepositoryCount);
+    }
+
+    [Fact]
     public async Task RemovedRepositoryRestoreAs_CallsManagementServiceWithCategoryAndFolderName()
     {
         var restoreRecord = RemovedRecord("RestoreAsMe");
@@ -1186,6 +1216,58 @@ public sealed class MainShellViewModelTests
         Assert.Contains("folder name", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.True(Directory.Exists(removedPath));
         Assert.False(Directory.Exists(Path.Combine(libraryRoot, "Plugins", "restore")));
+    }
+
+    [Fact]
+    public async Task CoreRepositoryManagementService_SaveDefaultOptionsAsync_PropagatesCancellationBeforeCommittedSave()
+    {
+        var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        CreateRepositoryDirectory(Path.Combine(libraryRoot, "Plugins", "RepoA"));
+        var store = new FailingRepositoryManagementConfigStore(new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins"]
+        })
+        {
+            RespectCancellationOnSave = true
+        };
+        var service = new CoreRepositoryManagementService(store);
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        var exception = await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            service.SaveDefaultOptionsAsync(libraryRoot, new GitPullerOptions(), cancellationTokenSource.Token));
+
+        Assert.Equal(cancellationTokenSource.Token, exception.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CoreRepositoryManagementService_SaveDefaultOptionsAsync_CompletesCommittedSaveWithoutPostCommitScan_WhenCancellationArrivesAfterSave()
+    {
+        var libraryRoot = Path.Combine(TestRoot, Guid.NewGuid().ToString("N"));
+        CreateRepositoryDirectory(Path.Combine(libraryRoot, "Plugins", "RepoA"));
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var options = new GitPullerOptions
+        {
+            GitTimeoutMilliseconds = 12345
+        };
+        var store = new FailingRepositoryManagementConfigStore(new LibraryConfig
+        {
+            LibraryRoot = libraryRoot,
+            Categories = ["Plugins"]
+        })
+        {
+            AfterSuccessfulSave = cancellationTokenSource.Cancel
+        };
+        var service = new CoreRepositoryManagementService(store);
+
+        var result = await service.SaveDefaultOptionsAsync(libraryRoot, options, cancellationTokenSource.Token);
+
+        Assert.True(cancellationTokenSource.IsCancellationRequested);
+        Assert.Equal(12345, result.Options.GitTimeoutMilliseconds);
+        var repository = Assert.Single(result.Inventory.Repositories);
+        Assert.Equal("RepoA", repository.Name);
+        Assert.Equal(12345, store.PersistedConfig.DefaultOptions.GitTimeoutMilliseconds);
     }
 
     [Fact]
@@ -1824,6 +1906,21 @@ public sealed class MainShellViewModelTests
         Assert.True(File.Exists(result.LatestReportPath));
         Assert.True(File.Exists(result.RunReportPath));
         Assert.Contains("# Git Update Report", await File.ReadAllTextAsync(result.LatestReportPath));
+    }
+
+    [Fact]
+    public async Task CoreGitPullerSyncService_LoadLibraryAsync_PropagatesCancellation()
+    {
+        var libraryRoot = Path.Combine(TestRoot, "sync-service", Guid.NewGuid().ToString("N"), "library");
+        CreateRepositoryDirectory(Path.Combine(libraryRoot, "Plugins", "RepoA"));
+        var service = new CoreGitPullerSyncService();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        var exception = await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            service.LoadLibraryAsync(libraryRoot, cancellationTokenSource.Token));
+
+        Assert.Equal(cancellationTokenSource.Token, exception.CancellationToken);
     }
 
     [Fact]
@@ -2798,6 +2895,7 @@ public sealed class MainShellViewModelTests
         public int SaveCallCount { get; private set; }
         public bool RespectCancellationOnSave { get; set; }
         public Action? BeforeSaveFailure { get; set; }
+        public Action? AfterSuccessfulSave { get; set; }
 
         public Task<LibraryConfig> LoadAsync(string libraryRoot, CancellationToken cancellationToken)
         {
@@ -2819,6 +2917,7 @@ public sealed class MainShellViewModelTests
             }
 
             PersistedConfig = CloneConfig(config);
+            AfterSuccessfulSave?.Invoke();
             return Task.CompletedTask;
         }
 
