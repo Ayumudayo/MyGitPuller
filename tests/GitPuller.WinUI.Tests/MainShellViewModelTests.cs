@@ -2051,6 +2051,32 @@ public sealed class MainShellViewModelTests
     }
 
     [Theory]
+    [InlineData("https://github.com/owner/repo.git", "https://github.com/owner/repo.git")]
+    [InlineData("git@github.com:owner/repo.git", "https://github.com/owner/repo")]
+    [InlineData("git@github-bf:bloooowfish/MyGitPuller.git", "https://github.com/bloooowfish/MyGitPuller")]
+    [InlineData("ssh://git@github.com/owner/repo.git", "https://github.com/owner/repo")]
+    public void RemoteLinkBuilder_BuildsBrowserUrlsForSupportedRemotes(string remoteUrl, string expectedBrowserUrl)
+    {
+        var builder = new RemoteLinkBuilder();
+
+        var succeeded = builder.TryBuildBrowserUrl(remoteUrl, out var browserUrl);
+
+        Assert.True(succeeded);
+        Assert.Equal(expectedBrowserUrl, browserUrl);
+    }
+
+    [Fact]
+    public void RemoteLinkBuilder_ReturnsFalseForUnsupportedRemotes()
+    {
+        var builder = new RemoteLinkBuilder();
+
+        var succeeded = builder.TryBuildBrowserUrl("git@internal:owner/repo.git", out var browserUrl);
+
+        Assert.False(succeeded);
+        Assert.Equal(string.Empty, browserUrl);
+    }
+
+    [Theory]
     [InlineData("git@github.com:owner/repo.git", "https://github.com/owner/repo")]
     [InlineData("git@github-bf:bloooowfish/MyGitPuller.git", "https://github.com/bloooowfish/MyGitPuller")]
     [InlineData("ssh://git@github.com/owner/repo.git", "https://github.com/owner/repo")]

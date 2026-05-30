@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Globalization;
-using System.Text.RegularExpressions;
 using System.Windows.Input;
 using GitPuller;
 using GitPuller_WinUI.Services;
@@ -14,6 +13,7 @@ public sealed class MainShellViewModel : ObservableObject
     private readonly IRepositoryManagementService? repositoryManagementService;
     private readonly IFileSystemLauncher? launcher;
     private readonly IAppSettingsService? appSettingsService;
+    private readonly IRemoteLinkBuilder remoteLinkBuilder;
     private readonly IViewModelDispatcher dispatcher;
     private bool showCleanRepositories;
     private bool isRunning;
@@ -74,7 +74,8 @@ public sealed class MainShellViewModel : ObservableObject
         IViewModelDispatcher? dispatcher = null,
         IRepositoryManagementService? repositoryManagementService = null,
         IFileSystemLauncher? launcher = null,
-        IAppSettingsService? appSettingsService = null)
+        IAppSettingsService? appSettingsService = null,
+        IRemoteLinkBuilder? remoteLinkBuilder = null)
         : this(
             libraryRoot,
             categories: [],
@@ -84,7 +85,8 @@ public sealed class MainShellViewModel : ObservableObject
             dispatcher,
             repositoryManagementService,
             launcher,
-            appSettingsService)
+            appSettingsService,
+            remoteLinkBuilder)
     {
     }
 
@@ -97,13 +99,15 @@ public sealed class MainShellViewModel : ObservableObject
         IViewModelDispatcher? dispatcher = null,
         IRepositoryManagementService? repositoryManagementService = null,
         IFileSystemLauncher? launcher = null,
-        IAppSettingsService? appSettingsService = null)
+        IAppSettingsService? appSettingsService = null,
+        IRemoteLinkBuilder? remoteLinkBuilder = null)
     {
         this.libraryRoot = string.IsNullOrWhiteSpace(libraryRoot) ? string.Empty : libraryRoot;
         this.syncService = syncService;
         this.repositoryManagementService = repositoryManagementService;
         this.launcher = launcher;
         this.appSettingsService = appSettingsService;
+        this.remoteLinkBuilder = remoteLinkBuilder ?? RemoteLinkBuilder.Instance;
         this.dispatcher = dispatcher ?? ImmediateViewModelDispatcher.Instance;
 
         Categories = new ObservableCollection<CategoryNavigationItemViewModel>(categories);
@@ -517,7 +521,7 @@ public sealed class MainShellViewModel : ObservableObject
         && !string.IsNullOrWhiteSpace(SelectedResult?.Path);
     public bool CanOpenSelectedRemote =>
         launcher is not null
-        && TryGetBrowserRemoteUri(SelectedResult?.RemoteUrl, out _);
+        && remoteLinkBuilder.TryBuildBrowserUrl(SelectedResult?.RemoteUrl, out _);
     public bool CanOpenLibraryFolder =>
         launcher is not null
         && !string.IsNullOrWhiteSpace(LibraryRoot);
@@ -1509,7 +1513,7 @@ public sealed class MainShellViewModel : ObservableObject
 
     private async Task LaunchRemoteAsync(string? remoteUrl, string description)
     {
-        if (launcher is null || !TryGetBrowserRemoteUri(remoteUrl, out var browserUrl))
+        if (launcher is null || !remoteLinkBuilder.TryBuildBrowserUrl(remoteUrl, out var browserUrl))
         {
             SetLaunchError($"Cannot open {description}.");
             return;
@@ -1572,93 +1576,6 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(LaunchStatusMessage));
         OnPropertyChanged(nameof(HasLaunchError));
         OnPropertyChanged(nameof(HasLaunchStatus));
-    }
-
-    private static bool TryGetBrowserRemoteUri(string? remoteUrl, out string browserUrl)
-    {
-        browserUrl = string.Empty;
-        var trimmedRemote = remoteUrl?.Trim();
-        if (string.IsNullOrWhiteSpace(trimmedRemote))
-        {
-            return false;
-        }
-
-        if (Uri.TryCreate(trimmedRemote, UriKind.Absolute, out var parsedUri))
-        {
-            if (parsedUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
-                || parsedUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-            {
-                browserUrl = trimmedRemote;
-                return true;
-            }
-
-            if (parsedUri.Scheme.Equals("ssh", StringComparison.OrdinalIgnoreCase)
-                && TryMapBrowserHost(parsedUri.Host, out var browserHost))
-            {
-                var remotePath = parsedUri.AbsolutePath.TrimStart('/');
-                return TryBuildBrowserUrl(browserHost, remotePath, out browserUrl);
-            }
-
-            return false;
-        }
-
-        var scpLikeMatch = Regex.Match(
-            trimmedRemote,
-            @"^(?:(?<user>[^@\s:]+)@)?(?<host>[^:\s]+):(?<path>[^\\]+)$",
-            RegexOptions.CultureInvariant);
-        if (!scpLikeMatch.Success)
-        {
-            return false;
-        }
-
-        var path = scpLikeMatch.Groups["path"].Value;
-        if (path.IndexOf('/') < 0 || !TryMapBrowserHost(scpLikeMatch.Groups["host"].Value, out var mappedHost))
-        {
-            return false;
-        }
-
-        return TryBuildBrowserUrl(mappedHost, path, out browserUrl);
-    }
-
-    private static bool TryMapBrowserHost(string host, out string browserHost)
-    {
-        browserHost = string.Empty;
-        if (string.IsNullOrWhiteSpace(host))
-        {
-            return false;
-        }
-
-        if (host.Equals("github-bf", StringComparison.OrdinalIgnoreCase))
-        {
-            browserHost = "github.com";
-            return true;
-        }
-
-        if (host.Contains('.', StringComparison.Ordinal))
-        {
-            browserHost = host;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryBuildBrowserUrl(string browserHost, string remotePath, out string browserUrl)
-    {
-        browserUrl = string.Empty;
-        var normalizedPath = remotePath.Trim().TrimStart('/').TrimEnd('/');
-        if (string.IsNullOrWhiteSpace(normalizedPath))
-        {
-            return false;
-        }
-
-        if (normalizedPath.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
-        {
-            normalizedPath = normalizedPath[..^4];
-        }
-
-        browserUrl = $"https://{browserHost}/{normalizedPath}";
-        return Uri.TryCreate(browserUrl, UriKind.Absolute, out _);
     }
 
     private async Task<GitPullerLibraryLoadResult> LoadLibraryForCurrentRootAsync(
