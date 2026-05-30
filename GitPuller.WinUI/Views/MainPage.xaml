@@ -108,6 +108,76 @@
             <Grid Width="0" Height="0" />
         </DataTemplate>
 
+        <DataTemplate x:Key="CleanRunStatusIndicatorTemplate" x:DataType="vm:RunStatusIndicatorViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse
+                    Width="9"
+                    Height="9"
+                    Fill="{ThemeResource GitPullerCleanBrush}"
+                    VerticalAlignment="Center" />
+                <TextBlock
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource GitPullerCleanBrush}"
+                    Text="{x:Bind Text}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="UpdatedRunStatusIndicatorTemplate" x:DataType="vm:RunStatusIndicatorViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse
+                    Width="9"
+                    Height="9"
+                    Fill="{ThemeResource GitPullerUpdatedBrush}"
+                    VerticalAlignment="Center" />
+                <TextBlock
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource GitPullerUpdatedBrush}"
+                    Text="{x:Bind Text}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="WarningRunStatusIndicatorTemplate" x:DataType="vm:RunStatusIndicatorViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse
+                    Width="9"
+                    Height="9"
+                    Fill="{ThemeResource GitPullerWarningBrush}"
+                    VerticalAlignment="Center" />
+                <TextBlock
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource GitPullerWarningBrush}"
+                    Text="{x:Bind Text}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="CanceledRunStatusIndicatorTemplate" x:DataType="vm:RunStatusIndicatorViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse
+                    Width="9"
+                    Height="9"
+                    Fill="{ThemeResource GitPullerCanceledBrush}"
+                    VerticalAlignment="Center" />
+                <TextBlock
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource GitPullerCanceledBrush}"
+                    Text="{x:Bind Text}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="FailedRunStatusIndicatorTemplate" x:DataType="vm:RunStatusIndicatorViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse
+                    Width="9"
+                    Height="9"
+                    Fill="{ThemeResource GitPullerFailedBrush}"
+                    VerticalAlignment="Center" />
+                <TextBlock
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource GitPullerFailedBrush}"
+                    Text="{x:Bind Text}" />
+            </StackPanel>
+        </DataTemplate>
+
         <DataTemplate x:Key="RemovedRepositoryDialogItemTemplate" x:DataType="vm:RemovedRepositoryViewModel">
             <Border
                 Margin="0,0,0,10"
@@ -174,6 +244,16 @@
             FailedTemplate="{StaticResource FailedStatusBadgeTemplate}"
             UpdatedTemplate="{StaticResource UpdatedStatusBadgeTemplate}"
             WarningTemplate="{StaticResource WarningStatusBadgeTemplate}" />
+
+        <selectors:RunStatusIndicatorTemplateSelector
+            x:Key="RunStatusIndicatorTemplateSelector"
+            CanceledTemplate="{StaticResource CanceledRunStatusIndicatorTemplate}"
+            CompletedTemplate="{StaticResource UpdatedRunStatusIndicatorTemplate}"
+            FailedTemplate="{StaticResource FailedRunStatusIndicatorTemplate}"
+            InterruptedTemplate="{StaticResource WarningRunStatusIndicatorTemplate}"
+            ReadyTemplate="{StaticResource CleanRunStatusIndicatorTemplate}"
+            ReviewRequiredTemplate="{StaticResource WarningRunStatusIndicatorTemplate}"
+            RunningTemplate="{StaticResource UpdatedRunStatusIndicatorTemplate}" />
     </Page.Resources>
 
     <Grid
@@ -348,18 +428,10 @@
                                 FontSize="14"
                                 Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
                                 Text="{Binding LastSyncCompletedText}" />
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Ellipse
-                                    Width="9"
-                                    Height="9"
-                                    Fill="{ThemeResource GitPullerUpdatedBrush}"
-                                    VerticalAlignment="Center" />
-                                <TextBlock
-                                    FontSize="13"
-                                    FontWeight="SemiBold"
-                                    Foreground="{ThemeResource GitPullerUpdatedBrush}"
-                                    Text="{Binding RunCompletionStatusText}" />
-                            </StackPanel>
+                            <ContentControl
+                                Content="{Binding RunCompletionStatusIndicator}"
+                                ContentTemplateSelector="{StaticResource RunStatusIndicatorTemplateSelector}"
+                                FontSize="13" />
                         </StackPanel>
                     </Grid>
 
@@ -889,14 +961,10 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Ellipse
-                        Width="8"
-                        Height="8"
-                        Fill="{ThemeResource GitPullerUpdatedBrush}" />
-                    <TextBlock
-                        FontSize="12"
-                        Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
-                        Text="{Binding FooterRunStateText}" />
+                    <ContentControl
+                        Content="{Binding FooterRunStateIndicator}"
+                        ContentTemplateSelector="{StaticResource RunStatusIndicatorTemplateSelector}"
+                        FontSize="12" />
                     <TextBlock
                         FontSize="12"
                         Foreground="{ThemeResource GitPullerSubtleTextBrush}"

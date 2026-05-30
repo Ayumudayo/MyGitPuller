@@ -9,6 +9,7 @@
             <SolidColorBrush x:Key="GitPullerWarningBrush" Color="#986F0B" />
             <SolidColorBrush x:Key="GitPullerUpdatedBrush" Color="#107C10" />
             <SolidColorBrush x:Key="GitPullerCleanBrush" Color="#0F6CBD" />
+            <SolidColorBrush x:Key="GitPullerCanceledBrush" Color="#5F6B7A" />
             <SolidColorBrush x:Key="GitPullerFolderAccentBrush" Color="#0F6CBD" />
             <SolidColorBrush x:Key="GitPullerAppBackgroundBrush" Color="#F6F8FB" />
             <SolidColorBrush x:Key="GitPullerSidebarBrush" Color="#EDF2F7" />
@@ -31,6 +32,7 @@
             <SolidColorBrush x:Key="GitPullerWarningBrush" Color="#F6CF79" />
             <SolidColorBrush x:Key="GitPullerUpdatedBrush" Color="#A7EC98" />
             <SolidColorBrush x:Key="GitPullerCleanBrush" Color="#A9CFF7" />
+            <SolidColorBrush x:Key="GitPullerCanceledBrush" Color="#B7C4D3" />
             <SolidColorBrush x:Key="GitPullerFolderAccentBrush" Color="#5DA7FF" />
             <SolidColorBrush x:Key="GitPullerAppBackgroundBrush" Color="#0B1016" />
             <SolidColorBrush x:Key="GitPullerSidebarBrush" Color="#111922" />
@@ -53,6 +55,7 @@
             <SolidColorBrush x:Key="GitPullerWarningBrush" Color="{ThemeResource SystemColorHotlightColor}" />
             <SolidColorBrush x:Key="GitPullerUpdatedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="GitPullerCleanBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+            <SolidColorBrush x:Key="GitPullerCanceledBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
             <SolidColorBrush x:Key="GitPullerFolderAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="GitPullerAppBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GitPullerSidebarBrush" Color="{ThemeResource SystemColorWindowColor}" />

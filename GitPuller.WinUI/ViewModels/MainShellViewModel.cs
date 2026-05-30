@@ -214,6 +214,7 @@ public sealed class MainShellViewModel : ObservableObject
                 OnPropertyChanged(nameof(IsRunProgressIndeterminate));
                 OnPropertyChanged(nameof(RunCompletionStatusText));
                 OnPropertyChanged(nameof(FooterRunStateText));
+                RaiseRunStatusIndicatorPropertiesChanged();
                 OnPropertyChanged(nameof(CanAddRepositoryFromUrl));
                 OnPropertyChanged(nameof(CanCloneRepository));
                 OnPropertyChanged(nameof(CanSaveAdvancedOptions));
@@ -267,6 +268,42 @@ public sealed class MainShellViewModel : ObservableObject
             ? "Scanning library"
             : "No repositories loaded";
     public bool IsRunProgressIndeterminate => IsRunning && RunProgressTotal == 0;
+    public RunStatusIndicatorKind CurrentRunStatusIndicatorKind
+    {
+        get
+        {
+            if (HasRunError)
+            {
+                if (lastRunWasCanceled)
+                {
+                    return RunStatusIndicatorKind.Canceled;
+                }
+
+                return lastRunWasInterrupted
+                    ? RunStatusIndicatorKind.Interrupted
+                    : RunStatusIndicatorKind.Failed;
+            }
+
+            if (IsRunning)
+            {
+                return RunStatusIndicatorKind.Running;
+            }
+
+            if (lastSyncCompletedAt == default)
+            {
+                return RunStatusIndicatorKind.Ready;
+            }
+
+            return HasAttentionItems
+                ? RunStatusIndicatorKind.ReviewRequired
+                : RunStatusIndicatorKind.Completed;
+        }
+    }
+
+    public RunStatusIndicatorViewModel RunCompletionStatusIndicator =>
+        new(RunCompletionStatusText, CurrentRunStatusIndicatorKind);
+    public RunStatusIndicatorViewModel FooterRunStateIndicator =>
+        new(FooterRunStateText, CurrentRunStatusIndicatorKind);
 
     public bool ShowCleanRepositories
     {
@@ -2035,6 +2072,7 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(RunStatusTitle));
         OnPropertyChanged(nameof(RunCompletionStatusText));
         OnPropertyChanged(nameof(FooterRunStateText));
+        RaiseRunStatusIndicatorPropertiesChanged();
     }
 
     private void SetRunError(string message, bool interrupted = false, bool canceled = false)
@@ -2052,6 +2090,7 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(RunStatusTitle));
         OnPropertyChanged(nameof(RunCompletionStatusText));
         OnPropertyChanged(nameof(FooterRunStateText));
+        RaiseRunStatusIndicatorPropertiesChanged();
     }
 
     private void ClearRunError()
@@ -2067,6 +2106,7 @@ public sealed class MainShellViewModel : ObservableObject
                 OnPropertyChanged(nameof(RunStatusTitle));
                 OnPropertyChanged(nameof(RunCompletionStatusText));
                 OnPropertyChanged(nameof(FooterRunStateText));
+                RaiseRunStatusIndicatorPropertiesChanged();
             }
 
             return;
@@ -2081,6 +2121,7 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(RunStatusTitle));
         OnPropertyChanged(nameof(RunCompletionStatusText));
         OnPropertyChanged(nameof(FooterRunStateText));
+        RaiseRunStatusIndicatorPropertiesChanged();
     }
 
     private void SetSelectedCategory(CategoryNavigationItemViewModel? value, bool updateNavigation)
@@ -2760,6 +2801,14 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(WarningFooterText));
         OnPropertyChanged(nameof(FailedFooterText));
         OnPropertyChanged(nameof(FooterRunStateText));
+        RaiseRunStatusIndicatorPropertiesChanged();
+    }
+
+    private void RaiseRunStatusIndicatorPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(CurrentRunStatusIndicatorKind));
+        OnPropertyChanged(nameof(RunCompletionStatusIndicator));
+        OnPropertyChanged(nameof(FooterRunStateIndicator));
     }
 
     private void InvalidateVisibleResults()

@@ -203,6 +203,39 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public void RunStatusVisual_MainPageUsesSemanticIndicatorTemplates()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+
+        Assert.Contains("RunStatusIndicatorTemplateSelector", xaml, StringComparison.Ordinal);
+        Assert.Contains("RunCompletionStatusIndicator", xaml, StringComparison.Ordinal);
+        Assert.Contains("FooterRunStateIndicator", xaml, StringComparison.Ordinal);
+        Assert.Contains("{ThemeResource GitPullerWarningBrush}", xaml, StringComparison.Ordinal);
+        Assert.Contains("{ThemeResource GitPullerFailedBrush}", xaml, StringComparison.Ordinal);
+        Assert.Contains("{ThemeResource GitPullerCanceledBrush}", xaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunStatusVisual_TopAndFooterDoNotHardcodeUpdatedBrush()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+        var syncBarStart = xaml.IndexOf("x:Name=\"SyncBar\"", StringComparison.Ordinal);
+        var syncBarEnd = xaml.IndexOf("Command=\"{Binding RunSyncCommand}\"", syncBarStart, StringComparison.Ordinal);
+        var footerStart = xaml.IndexOf("x:Name=\"FooterStatusBar\"", StringComparison.Ordinal);
+
+        Assert.True(syncBarStart >= 0);
+        Assert.True(syncBarEnd > syncBarStart);
+        Assert.True(footerStart >= 0);
+
+        var syncBarStatusArea = xaml[syncBarStart..syncBarEnd];
+        var footerStatusArea = xaml[footerStart..];
+
+        Assert.DoesNotContain("Fill=\"{ThemeResource GitPullerUpdatedBrush}\"", syncBarStatusArea, StringComparison.Ordinal);
+        Assert.DoesNotContain("Foreground=\"{ThemeResource GitPullerUpdatedBrush}\"", syncBarStatusArea, StringComparison.Ordinal);
+        Assert.DoesNotContain("Fill=\"{ThemeResource GitPullerUpdatedBrush}\"", footerStatusArea, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AcceptedMockupShell_MainPageUsesCustomMockupRegions()
     {
         var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
@@ -671,6 +704,8 @@ public sealed class MainShellViewModelTests
         Assert.Equal("PersistedRepo", restored.Name);
         Assert.Equal("Sync completed.", viewModel.CurrentProgressMessage);
         Assert.Equal("Completed", viewModel.RunCompletionStatusText);
+        Assert.Equal(RunStatusIndicatorKind.Completed, viewModel.RunCompletionStatusIndicator.Kind);
+        Assert.Equal(RunStatusIndicatorKind.Completed, viewModel.FooterRunStateIndicator.Kind);
     }
 
     [Fact]
@@ -1959,6 +1994,48 @@ public sealed class MainShellViewModelTests
         Assert.Equal("Sync completed.", viewModel.CurrentProgressMessage);
         Assert.Equal("Completed", viewModel.RunCompletionStatusText);
         Assert.NotEqual("-", viewModel.LastSyncCompletedText);
+        Assert.Equal(RunStatusIndicatorKind.Completed, viewModel.RunCompletionStatusIndicator.Kind);
+        Assert.Equal(RunStatusIndicatorKind.Completed, viewModel.FooterRunStateIndicator.Kind);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_RestoresCompletedRunStateWithAttentionIndicator()
+    {
+        var repository = Descriptor("Plugins", "WarningRepo");
+        var completedAt = new DateTimeOffset(2026, 5, 30, 10, 45, 0, TimeSpan.Zero);
+        var result = RepoResultFor(
+            repository,
+            failed: false,
+            newCommits: 0,
+            diagnostic: Diagnostic(RetryPolicy.NotApplicable, DiagnosticSeverity.Warning));
+        result.CompletedAt = completedAt;
+        var runStateStore = new FakeRunStateStore
+        {
+            LoadedState = new PersistedRunState
+            {
+                LibraryRoot = TestRoot,
+                Status = PersistedRunStatus.Completed,
+                StartedAt = completedAt.AddMinutes(-1),
+                CompletedAt = completedAt,
+                CompletedRepositories = 1,
+                TotalRepositories = 1,
+                Message = "Sync completed with items to review.",
+                RepositoryResults = [PersistedRepositoryResult.FromViewModel(RepositoryResultViewModel.FromResult(result, repository))]
+            }
+        };
+        var service = new FakeGitPullerSyncService(LoadResult(new GitPullerOptions(), [repository], ["Plugins"]));
+        var viewModel = new MainShellViewModel(
+            TestRoot,
+            service,
+            runStateStore: runStateStore);
+
+        await viewModel.InitializeAsync();
+
+        Assert.True(viewModel.HasAttentionItems);
+        Assert.Equal("Completed", viewModel.RunCompletionStatusIndicator.Text);
+        Assert.Equal(RunStatusIndicatorKind.ReviewRequired, viewModel.RunCompletionStatusIndicator.Kind);
+        Assert.Equal("Review required", viewModel.FooterRunStateIndicator.Text);
+        Assert.Equal(RunStatusIndicatorKind.ReviewRequired, viewModel.FooterRunStateIndicator.Kind);
     }
 
     [Fact]
@@ -1992,6 +2069,9 @@ public sealed class MainShellViewModelTests
         Assert.Equal(2, viewModel.RunProgressTotal);
         Assert.Contains("interrupted", viewModel.RunStatusMessage, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("Interrupted", viewModel.RunCompletionStatusText);
+        Assert.Equal(RunStatusIndicatorKind.Interrupted, viewModel.RunCompletionStatusIndicator.Kind);
+        Assert.Equal("Interrupted", viewModel.RunCompletionStatusIndicator.Text);
+        Assert.Equal(RunStatusIndicatorKind.Interrupted, viewModel.FooterRunStateIndicator.Kind);
         Assert.Equal(PersistedRunStatus.Interrupted, Assert.Single(runStateStore.SavedStates).Status);
     }
 
@@ -2024,6 +2104,8 @@ public sealed class MainShellViewModelTests
         Assert.Equal("Sync canceled", viewModel.RunStatusTitle);
         Assert.Equal("Canceled", viewModel.RunCompletionStatusText);
         Assert.Equal("Canceled", viewModel.FooterRunStateText);
+        Assert.Equal(RunStatusIndicatorKind.Canceled, viewModel.RunCompletionStatusIndicator.Kind);
+        Assert.Equal(RunStatusIndicatorKind.Canceled, viewModel.FooterRunStateIndicator.Kind);
         Assert.Contains("canceled", viewModel.RunStatusMessage, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -2059,6 +2141,7 @@ public sealed class MainShellViewModelTests
         Assert.Equal(1, finalState.CompletedRepositories);
         Assert.Equal(1, finalState.TotalRepositories);
         Assert.Equal("StatefulRepo", Assert.Single(finalState.RepositoryResults).Name);
+        Assert.Equal(RunStatusIndicatorKind.Completed, viewModel.RunCompletionStatusIndicator.Kind);
     }
 
     [Fact]
