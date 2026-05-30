@@ -283,154 +283,8 @@ public sealed partial class MainPage : Page
 
     private async Task ShowAdvancedOptionsDialogAsync()
     {
-        var workersBox = new NumberBox
-        {
-            Header = "Workers",
-            Minimum = 1,
-            Maximum = 64,
-            Value = ViewModel.AdvancedWorkers
-        };
-        var timeoutBox = new NumberBox
-        {
-            Header = "Git timeout seconds",
-            Minimum = 1,
-            Maximum = 3600,
-            Value = ViewModel.AdvancedTimeoutSeconds
-        };
-        var staleLockBox = new NumberBox
-        {
-            Header = "Stale lock minutes",
-            Minimum = 1,
-            Maximum = 1440,
-            Value = ViewModel.AdvancedStaleLockMinutes
-        };
-        var syncAllBranchesBox = new CheckBox
-        {
-            Content = "Sync all accessible branches",
-            IsChecked = ViewModel.AdvancedSyncAllBranches
-        };
-        var staleLockCleanupBox = new CheckBox
-        {
-            Content = "Disable stale lock cleanup",
-            IsChecked = ViewModel.AdvancedNoStaleLockCleanup
-        };
-        var verboseReportBox = new CheckBox
-        {
-            Content = "Verbose report",
-            IsChecked = ViewModel.AdvancedVerboseReport
-        };
-        var initMissingSubmodulesBox = new CheckBox
-        {
-            Content = "Initialize missing submodules",
-            IsChecked = ViewModel.AdvancedInitMissingSubmodules
-        };
-        var statusBar = new InfoBar
-        {
-            Severity = InfoBarSeverity.Informational,
-            Title = "Options",
-            IsOpen = ViewModel.HasAdvancedOptionsStatus,
-            Message = ViewModel.AdvancedOptionsStatusMessage
-        };
-        var errorBar = new InfoBar
-        {
-            Severity = InfoBarSeverity.Error,
-            Title = "Save failed",
-            IsOpen = ViewModel.HasAdvancedOptionsError,
-            Message = ViewModel.AdvancedOptionsErrorMessage
-        };
-
-        workersBox.ValueChanged += AdvancedWorkersNumberBox_ValueChanged;
-        timeoutBox.ValueChanged += AdvancedTimeoutNumberBox_ValueChanged;
-        staleLockBox.ValueChanged += AdvancedStaleLockNumberBox_ValueChanged;
-        syncAllBranchesBox.Checked += (_, _) => ViewModel.AdvancedSyncAllBranches = true;
-        syncAllBranchesBox.Unchecked += (_, _) => ViewModel.AdvancedSyncAllBranches = false;
-        staleLockCleanupBox.Checked += (_, _) => ViewModel.AdvancedNoStaleLockCleanup = true;
-        staleLockCleanupBox.Unchecked += (_, _) => ViewModel.AdvancedNoStaleLockCleanup = false;
-        verboseReportBox.Checked += (_, _) => ViewModel.AdvancedVerboseReport = true;
-        verboseReportBox.Unchecked += (_, _) => ViewModel.AdvancedVerboseReport = false;
-        initMissingSubmodulesBox.Checked += (_, _) => ViewModel.AdvancedInitMissingSubmodules = true;
-        initMissingSubmodulesBox.Unchecked += (_, _) => ViewModel.AdvancedInitMissingSubmodules = false;
-
-        var dialog = new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            Title = "Advanced sync options",
-            PrimaryButtonText = "Save defaults",
-            CloseButtonText = "Close",
-            DefaultButton = ContentDialogButton.Primary,
-            Content = new ScrollViewer
-            {
-                MaxHeight = 640,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Content = new StackPanel
-                {
-                    Spacing = 10,
-                    Children =
-                    {
-                        workersBox,
-                        timeoutBox,
-                        staleLockBox,
-                        syncAllBranchesBox,
-                        staleLockCleanupBox,
-                        verboseReportBox,
-                        initMissingSubmodulesBox,
-                        statusBar,
-                        errorBar
-                    }
-                }
-            }
-        };
-
-        void UpdateDialogState()
-        {
-            dialog.IsPrimaryButtonEnabled = ViewModel.CanSaveAdvancedOptions;
-            statusBar.IsOpen = ViewModel.HasAdvancedOptionsStatus;
-            statusBar.Message = ViewModel.AdvancedOptionsStatusMessage;
-            errorBar.IsOpen = ViewModel.HasAdvancedOptionsError;
-            errorBar.Message = ViewModel.AdvancedOptionsErrorMessage;
-        }
-
-        PropertyChangedEventHandler propertyChanged = (_, args) =>
-        {
-            if (args.PropertyName is nameof(MainShellViewModel.CanSaveAdvancedOptions)
-                or nameof(MainShellViewModel.AdvancedOptionsStatusMessage)
-                or nameof(MainShellViewModel.AdvancedOptionsErrorMessage)
-                or nameof(MainShellViewModel.HasAdvancedOptionsStatus)
-                or nameof(MainShellViewModel.HasAdvancedOptionsError))
-            {
-                UpdateDialogState();
-            }
-        };
-
-        dialog.PrimaryButtonClick += async (_, args) =>
-        {
-            var deferral = args.GetDeferral();
-            try
-            {
-                await ViewModel.SaveAdvancedOptionsAsync();
-                args.Cancel = ViewModel.HasAdvancedOptionsError;
-                UpdateDialogState();
-            }
-            finally
-            {
-                deferral.Complete();
-            }
-        };
-
-        ViewModel.PropertyChanged += propertyChanged;
-        try
-        {
-            UpdateDialogState();
-            await dialog.ShowAsync();
-        }
-        finally
-        {
-            ViewModel.PropertyChanged -= propertyChanged;
-            workersBox.ValueChanged -= AdvancedWorkersNumberBox_ValueChanged;
-            timeoutBox.ValueChanged -= AdvancedTimeoutNumberBox_ValueChanged;
-            staleLockBox.ValueChanged -= AdvancedStaleLockNumberBox_ValueChanged;
-        }
+        using var dialog = new AdvancedOptionsDialog(ViewModel, XamlRoot);
+        await dialog.ShowAsync();
     }
 
     private async void RemovedRepositoriesButton_Click(object sender, RoutedEventArgs e)
@@ -498,21 +352,6 @@ public sealed partial class MainPage : Page
                 activeRemovedRepositoriesDialog = null;
             }
         }
-    }
-
-    private void AdvancedWorkersNumberBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
-    {
-        ViewModel.AdvancedWorkers = NormalizeNumberBoxValue(args.NewValue);
-    }
-
-    private void AdvancedTimeoutNumberBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
-    {
-        ViewModel.AdvancedTimeoutSeconds = NormalizeNumberBoxValue(args.NewValue);
-    }
-
-    private void AdvancedStaleLockNumberBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
-    {
-        ViewModel.AdvancedStaleLockMinutes = NormalizeNumberBoxValue(args.NewValue);
     }
 
     private async void RestoreRemovedRepositoryButton_Click(object sender, RoutedEventArgs e)
@@ -647,16 +486,6 @@ public sealed partial class MainPage : Page
     private static RemovedRepositoryViewModel? GetRemovedRepository(object sender)
     {
         return (sender as FrameworkElement)?.DataContext as RemovedRepositoryViewModel;
-    }
-
-    private static int NormalizeNumberBoxValue(double value)
-    {
-        if (double.IsNaN(value) || double.IsInfinity(value))
-        {
-            return 1;
-        }
-
-        return Math.Max(1, (int)Math.Round(value));
     }
 
     private void RebuildFolderTree()

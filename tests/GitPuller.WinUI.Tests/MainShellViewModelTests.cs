@@ -1166,6 +1166,16 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public void AdvancedOptionsDialogState_NormalizesNumberBoxValues()
+    {
+        Assert.Equal(1, AdvancedOptionsDialogState.NormalizeNumberBoxValue(double.NaN));
+        Assert.Equal(1, AdvancedOptionsDialogState.NormalizeNumberBoxValue(double.PositiveInfinity));
+        Assert.Equal(1, AdvancedOptionsDialogState.NormalizeNumberBoxValue(0));
+        Assert.Equal(2, AdvancedOptionsDialogState.NormalizeNumberBoxValue(1.5));
+        Assert.Equal(9, AdvancedOptionsDialogState.NormalizeNumberBoxValue(9.4));
+    }
+
+    [Fact]
     public async Task RemovedRepositoryActions_CallManagementServiceAndRefreshState()
     {
         var restoreRecord = RemovedRecord("RestoreMe");
