@@ -73,16 +73,29 @@ public sealed partial class MainPage : Page
 
     private void UpdateRetryButtonVisibility()
     {
-        if (PrimaryRetrySelectedDetailButton is null || SecondaryRetrySelectedDetailButton is null)
+        if (PrimaryRetrySelectedDetailButton is null
+            || SecondaryRetrySelectedDetailButton is null
+            || PrimaryRetrySelectedDetailButtonHost is null
+            || SecondaryRetrySelectedDetailButtonHost is null
+            || PrimaryRetrySelectedDetailToolTipTarget is null
+            || SecondaryRetrySelectedDetailToolTipTarget is null)
         {
             return;
         }
 
-        var showPrimary = ViewModel.HasSelectedResult && ViewModel.SelectedResultCanRetry && ViewModel.IsSelectedResultRetryPrimary;
-        var showSecondary = ViewModel.HasSelectedResult && ViewModel.SelectedResultCanRetry && ViewModel.IsSelectedResultRetrySecondary;
+        var showPrimary = ViewModel.HasSelectedResult && ViewModel.IsSelectedResultRetryPrimary;
+        var showSecondary = ViewModel.HasSelectedResult && !showPrimary;
 
-        PrimaryRetrySelectedDetailButton.Visibility = showPrimary ? Visibility.Visible : Visibility.Collapsed;
-        SecondaryRetrySelectedDetailButton.Visibility = showSecondary ? Visibility.Visible : Visibility.Collapsed;
+        PrimaryRetrySelectedDetailButtonHost.Visibility = showPrimary ? Visibility.Visible : Visibility.Collapsed;
+        SecondaryRetrySelectedDetailButtonHost.Visibility = showSecondary ? Visibility.Visible : Visibility.Collapsed;
+        PrimaryRetrySelectedDetailButton.IsEnabled = ViewModel.SelectedResultCanRetry;
+        SecondaryRetrySelectedDetailButton.IsEnabled = ViewModel.SelectedResultCanRetry;
+        PrimaryRetrySelectedDetailToolTipTarget.Visibility = ViewModel.SelectedResultCanRetry
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        SecondaryRetrySelectedDetailToolTipTarget.Visibility = ViewModel.SelectedResultCanRetry
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     private async void AddRepositoryButton_Click(object sender, RoutedEventArgs e)

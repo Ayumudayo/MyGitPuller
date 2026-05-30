@@ -84,6 +84,7 @@ public sealed class RepositoryResultViewModel
         RetryPolicy.PossibleAfterCheck => "Retry after check",
         RetryPolicy.BlockedUntilAction => "Retry blocked",
         RetryPolicy.Unknown => "Retry",
+        RetryPolicy.NotApplicable => "No retry",
         _ => "Retry"
     };
 

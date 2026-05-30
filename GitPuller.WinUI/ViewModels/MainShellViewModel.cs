@@ -667,6 +667,7 @@ public sealed class MainShellViewModel : ObservableObject
     public string SelectedResultRetryPolicyText => SelectedResult?.RetryPolicyText ?? "No retry information";
     public string SelectedResultRetryPolicyDescription => SelectedResult?.RetryPolicyDescription ?? string.Empty;
     public string SelectedResultRetryButtonText => SelectedResult?.RetryButtonText ?? "Retry";
+    public string SelectedResultRetryToolTipText => GetSelectedResultRetryToolTipText();
     public bool SelectedResultCanRetry => CanRetrySelected;
     public bool IsSelectedResultRetryPrimary => SelectedResult?.IsRetryPrimary == true;
     public bool IsSelectedResultRetrySecondary => SelectedResult?.IsRetrySecondary == true;
@@ -679,6 +680,34 @@ public sealed class MainShellViewModel : ObservableObject
         !IsRunning
         && currentRunRequest is not null
         && SelectedResult?.CanRetry == true;
+
+    private string GetSelectedResultRetryToolTipText()
+    {
+        if (SelectedResult is null)
+        {
+            return "Select a repository result to review retry options.";
+        }
+
+        if (IsRunning)
+        {
+            return "Retry is disabled while a sync is running.";
+        }
+
+        if (currentRunRequest is null)
+        {
+            return "Run sync once before retrying a repository.";
+        }
+
+        return SelectedResult.Diagnostic?.RetryPolicy switch
+        {
+            RetryPolicy.Recommended => "Retry this repository only.",
+            RetryPolicy.PossibleAfterCheck => "Review the evidence, then retry this repository if the condition looks resolved.",
+            RetryPolicy.BlockedUntilAction => "Fix the blocking repository or remote condition before retrying.",
+            RetryPolicy.Unknown => "Review the evidence before retrying this repository.",
+            RetryPolicy.NotApplicable => "This result does not need a retry action.",
+            _ => "No retry guidance was recorded."
+        };
+    }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
@@ -2836,6 +2865,7 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedResultRetryPolicyText));
         OnPropertyChanged(nameof(SelectedResultRetryPolicyDescription));
         OnPropertyChanged(nameof(SelectedResultRetryButtonText));
+        OnPropertyChanged(nameof(SelectedResultRetryToolTipText));
         OnPropertyChanged(nameof(SelectedResultCanRetry));
         OnPropertyChanged(nameof(IsSelectedResultRetryPrimary));
         OnPropertyChanged(nameof(IsSelectedResultRetrySecondary));
@@ -2895,6 +2925,7 @@ public sealed class MainShellViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(SelectedResultCanRetry));
+        OnPropertyChanged(nameof(SelectedResultRetryToolTipText));
     }
 }
 

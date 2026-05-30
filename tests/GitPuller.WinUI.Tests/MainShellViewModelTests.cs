@@ -368,18 +368,134 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
-    public void DetailsPane_HidesRetryButtonsWhenSelectedResultCannotRetry()
+    public void DetailsPane_KeepsRetryButtonVisibleAndExplainsDisabledState()
     {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
         var codeBehind = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml.cs");
 
+        Assert.Contains("SelectedResultRetryToolTipText", xaml, StringComparison.Ordinal);
+        Assert.Contains("PrimaryRetrySelectedDetailToolTipTarget", xaml, StringComparison.Ordinal);
+        Assert.Contains("SecondaryRetrySelectedDetailToolTipTarget", xaml, StringComparison.Ordinal);
         Assert.Contains(
+            "ToolTipService.ToolTip=\"{Binding SelectedResultRetryToolTipText}\"",
+            xaml,
+            StringComparison.Ordinal);
+        Assert.Contains("SelectedResultCanRetry", codeBehind, StringComparison.Ordinal);
+        Assert.Contains(".IsEnabled", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("PrimaryRetrySelectedDetailToolTipTarget.Visibility", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain(
             "ViewModel.HasSelectedResult && ViewModel.SelectedResultCanRetry && ViewModel.IsSelectedResultRetryPrimary",
             codeBehind,
             StringComparison.Ordinal);
-        Assert.Contains(
+        Assert.DoesNotContain(
             "ViewModel.HasSelectedResult && ViewModel.SelectedResultCanRetry && ViewModel.IsSelectedResultRetrySecondary",
             codeBehind,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SelectedResultRetryToolTipText_ExplainsBlockedDiagnostic_WhenRetryIsDisabled()
+    {
+        var repository = Descriptor("Plugins", "BlockedRepo");
+        var service = new FakeGitPullerSyncService(LoadResult(repository));
+        var viewModel = new MainShellViewModel(TestRoot, service);
+        await viewModel.InitializeAsync();
+        var result = Result(
+            "BlockedRepo",
+            RepositoryResultStatus.Failed,
+            Diagnostic(RetryPolicy.BlockedUntilAction, DiagnosticSeverity.Error));
+        viewModel.RepositoryResults.Add(result);
+        viewModel.SelectedResult = result;
+
+        Assert.False(viewModel.SelectedResultCanRetry);
+        Assert.Contains("blocking", viewModel.SelectedResultRetryToolTipText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SelectedResultRetryToolTipText_ExplainsMissingRunRequest_ForRetryableResult()
+    {
+        var viewModel = CreateViewModel(
+            Result(
+                "RetryableWithoutRun",
+                RepositoryResultStatus.Failed,
+                Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error)));
+
+        Assert.False(viewModel.SelectedResultCanRetry);
+        Assert.Contains("Run sync once", viewModel.SelectedResultRetryToolTipText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SelectedResultRetryToolTipText_ExplainsNoSelection()
+    {
+        var viewModel = CreateViewModel();
+        viewModel.SelectedResult = null;
+
+        Assert.Contains("Select a repository", viewModel.SelectedResultRetryToolTipText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SelectedResultRetryToolTipText_ExplainsRunningState()
+    {
+        var repository = Descriptor("Plugins", "RetryWhileRunning");
+        var service = new FakeGitPullerSyncService(LoadResult(repository));
+        var dispatcher = new QueuedViewModelDispatcher();
+        var waitForRun = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRun = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.RetryRepositoryAsyncHandler = async (_, _, _, _) =>
+        {
+            waitForRun.SetResult();
+            await releaseRun.Task;
+            return RepoResultFor(
+                repository,
+                failed: false,
+                newCommits: 0,
+                diagnostic: null);
+        };
+        var viewModel = new MainShellViewModel(TestRoot, service, dispatcher);
+        await viewModel.InitializeAsync();
+        var result = Result(
+            "RetryWhileRunning",
+            RepositoryResultStatus.Failed,
+            Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error));
+        viewModel.RepositoryResults.Add(result);
+        viewModel.SelectedResult = result;
+
+        var runTask = viewModel.RetrySelectedAsync();
+        await waitForRun.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(viewModel.SelectedResultCanRetry);
+        Assert.Contains("sync is running", viewModel.SelectedResultRetryToolTipText, StringComparison.OrdinalIgnoreCase);
+
+        releaseRun.SetResult();
+        await Task.Delay(20);
+        dispatcher.FlushAll();
+        await runTask;
+    }
+
+    [Theory]
+    [InlineData(RetryPolicy.Recommended, "Retry this repository")]
+    [InlineData(RetryPolicy.PossibleAfterCheck, "Review the evidence")]
+    [InlineData(RetryPolicy.BlockedUntilAction, "blocking")]
+    [InlineData(RetryPolicy.Unknown, "Review the evidence")]
+    [InlineData(RetryPolicy.NotApplicable, "does not need")]
+    public async Task SelectedResultRetryToolTipText_ProvidesReasonForEveryRetryPolicy(
+        RetryPolicy retryPolicy,
+        string expectedText)
+    {
+        var repository = Descriptor("Plugins", retryPolicy.ToString());
+        var service = new FakeGitPullerSyncService(LoadResult(repository));
+        var viewModel = new MainShellViewModel(TestRoot, service);
+        await viewModel.InitializeAsync();
+        var result = Result(
+            retryPolicy.ToString(),
+            retryPolicy == RetryPolicy.NotApplicable ? RepositoryResultStatus.Warning : RepositoryResultStatus.Failed,
+            Diagnostic(
+                retryPolicy,
+                retryPolicy == RetryPolicy.NotApplicable ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error));
+        viewModel.RepositoryResults.Add(result);
+        viewModel.SelectedResult = result;
+
+        Assert.Contains(expectedText, viewModel.SelectedResultRetryToolTipText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -795,16 +795,36 @@
                                     Grid.Row="1"
                                     Orientation="Horizontal"
                                     Spacing="8">
-                                    <Button
-                                        x:Name="PrimaryRetrySelectedDetailButton"
-                                        Command="{Binding RetrySelectedCommand}"
-                                        Content="{Binding SelectedResultRetryButtonText}"
-                                        Style="{StaticResource GitPullerPrimaryButtonStyle}" />
-                                    <Button
-                                        x:Name="SecondaryRetrySelectedDetailButton"
-                                        Command="{Binding RetrySelectedCommand}"
-                                        Content="{Binding SelectedResultRetryButtonText}"
-                                        Style="{StaticResource GitPullerChromeButtonStyle}" />
+                                    <Grid
+                                        x:Name="PrimaryRetrySelectedDetailButtonHost"
+                                        Background="Transparent"
+                                        ToolTipService.ToolTip="{Binding SelectedResultRetryToolTipText}">
+                                        <Button
+                                            x:Name="PrimaryRetrySelectedDetailButton"
+                                            Command="{Binding RetrySelectedCommand}"
+                                            Content="{Binding SelectedResultRetryButtonText}"
+                                            Style="{StaticResource GitPullerPrimaryButtonStyle}"
+                                            ToolTipService.ToolTip="{Binding SelectedResultRetryToolTipText}" />
+                                        <Border
+                                            x:Name="PrimaryRetrySelectedDetailToolTipTarget"
+                                            Background="Transparent"
+                                            ToolTipService.ToolTip="{Binding SelectedResultRetryToolTipText}" />
+                                    </Grid>
+                                    <Grid
+                                        x:Name="SecondaryRetrySelectedDetailButtonHost"
+                                        Background="Transparent"
+                                        ToolTipService.ToolTip="{Binding SelectedResultRetryToolTipText}">
+                                        <Button
+                                            x:Name="SecondaryRetrySelectedDetailButton"
+                                            Command="{Binding RetrySelectedCommand}"
+                                            Content="{Binding SelectedResultRetryButtonText}"
+                                            Style="{StaticResource GitPullerChromeButtonStyle}"
+                                            ToolTipService.ToolTip="{Binding SelectedResultRetryToolTipText}" />
+                                        <Border
+                                            x:Name="SecondaryRetrySelectedDetailToolTipTarget"
+                                            Background="Transparent"
+                                            ToolTipService.ToolTip="{Binding SelectedResultRetryToolTipText}" />
+                                    </Grid>
                                     <Button
                                         Command="{Binding OpenSelectedRepositoryFolderCommand}"
                                         Content="Open folder"
