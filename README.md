@@ -1,6 +1,6 @@
 # MyGitPuller
 
-여러 Git 리포지토리를 병렬로 빠르게 업데이트하는 C# 애플리케이션입니다. CLI는 계속 지원되며, WinUI 3 GUI 프로젝트도 함께 제공합니다. 상위 디렉터리를 스캔하여 모든 리포지토리를 찾고, 원격 상태를 로컬 백업용으로 강제 동기화합니다.
+여러 Git 리포지토리를 병렬로 빠르게 업데이트하는 C# 앱입니다. 지정 경로를 스캔하여 모든 리포지토리를 찾고, 원격 상태를 로컬 백업용으로 강제 동기화합니다.
 
 ## 시작하기
 
@@ -46,17 +46,15 @@ GUI 설정은 선택한 라이브러리 루트 아래 `.mygitpuller/config.json`
 GUI는 하나의 라이브러리 루트 아래에 카테고리 폴더를 두고 저장소를 관리합니다.
 
 ```
-E:\FF14\Repos\Remotes\
-├── Dalamud plugins\
-│   └── SomePlugin\
+E:\Foo\Repos\Remotes\
+├── Some Remote Repo\
+│   └── SomeFolder\
 ├── Tools\
 │   └── SomeTool\
 └── .mygitpuller\
     ├── config.json
     └── removed\
 ```
-
-URL 추가 시 사용자가 카테고리를 직접 선택합니다. 예를 들어 `https://github.com/goatcorp/Dalamud.git`을 `Tools` 카테고리에 추가하면 기본 대상은 `<라이브러리 루트>\Tools\Dalamud`입니다. 폴더 이름은 GUI에서 수정할 수 있으며, Core 검증을 통해 경로 이탈, `.mygitpuller` 내부 저장, Windows 예약 이름, trailing dot/space 같은 위험한 이름은 Git 실행 전에 거부됩니다.
 
 ## 사용 방법
 
