@@ -17,6 +17,7 @@ public enum RepositoryResultFilter
     All,
     Failed,
     Warning,
+    Retryable,
     Updated,
     Clean
 }

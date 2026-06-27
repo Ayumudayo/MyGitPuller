@@ -29,6 +29,14 @@ GUI는 `GitPuller.WinUI` 프로젝트에 있습니다. CLI와 같은 Core 실행
 dotnet run --project GitPuller.WinUI\GitPuller.WinUI.csproj --configuration Debug
 ```
 
+배포용 GUI 빌드는 publish 스크립트로 생성합니다. 인수 없이 실행하면 `Release`/`win-x64` 기준으로 .NET/Windows App SDK 런타임은 PC에 설치된 것을 쓰는 `artifacts\publish\GitPuller.WinUI\framework-dependent-win-x64\GitPuller.WinUI.exe` 폴더를 만듭니다.
+
+```powershell
+.\scripts\Publish-WinUI.ps1 -Clean
+```
+
+다른 PC로 런타임까지 함께 들고 가야 하면 `-SelfContained`를 지정합니다. `-Mode SingleFile`은 파일 하나로 묶지만 WinUI/XAML 런타임 호환성 검증이 더 필요하므로 기본값에서는 사용하지 않습니다.
+
 GUI의 기본 화면은 다크 테마이며 다음 흐름을 제공합니다.
 
 - 라이브러리 루트와 카테고리별 저장소 목록 확인

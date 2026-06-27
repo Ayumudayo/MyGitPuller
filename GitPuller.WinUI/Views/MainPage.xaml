@@ -237,6 +237,76 @@
             </Setter>
         </Style>
 
+        <Style x:Key="GitPullerRetryIssueCheckBoxStyle" TargetType="CheckBox">
+            <Setter Property="Width" Value="20" />
+            <Setter Property="MinWidth" Value="20" />
+            <Setter Property="Height" Value="20" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid
+                            x:Name="Root"
+                            Width="18"
+                            Height="18"
+                            Background="Transparent">
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Normal" />
+                                    <VisualState x:Name="PointerOver" />
+                                    <VisualState x:Name="Pressed" />
+                                    <VisualState x:Name="Disabled">
+                                        <VisualState.Setters>
+                                            <Setter Target="Root.Opacity" Value="0.35" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                </VisualStateGroup>
+                                <VisualStateGroup x:Name="CheckStates">
+                                    <VisualState x:Name="Unchecked" />
+                                    <VisualState x:Name="Checked">
+                                        <VisualState.Setters>
+                                            <Setter Target="CheckedBox.Opacity" Value="1" />
+                                            <Setter Target="CheckGlyph.Opacity" Value="1" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="Indeterminate">
+                                        <VisualState.Setters>
+                                            <Setter Target="CheckedBox.Opacity" Value="1" />
+                                            <Setter Target="CheckGlyph.Opacity" Value="1" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+
+                            <Border
+                                x:Name="UncheckedBox"
+                                Background="{ThemeResource GitPullerPanelAltBrush}"
+                                BorderBrush="{ThemeResource GitPullerBorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4" />
+                            <Border
+                                x:Name="CheckedBox"
+                                Background="{ThemeResource GitPullerAccentBrush}"
+                                BorderBrush="{ThemeResource GitPullerAccentBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Opacity="0" />
+                            <FontIcon
+                                x:Name="CheckGlyph"
+                                FontSize="10"
+                                Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                Glyph="&#xE73E;"
+                                Opacity="0" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <selectors:RepositoryResultStatusBadgeTemplateSelector
             x:Key="RepositoryResultStatusBadgeTemplateSelector"
             CleanTemplate="{StaticResource CleanStatusBadgeTemplate}"
@@ -448,6 +518,25 @@
                                 <TextBlock Text="{Binding RunSyncButtonText}" />
                             </StackPanel>
                         </Button>
+                        <Grid
+                            x:Name="RetrySelectedIssuesButtonHost"
+                            Background="Transparent"
+                            ToolTipService.ToolTip="{Binding RetrySelectedIssuesToolTipText}">
+                            <Button
+                                x:Name="RetrySelectedIssuesButton"
+                                Command="{Binding RetrySelectedIssuesCommand}"
+                                Style="{StaticResource GitPullerChromeButtonStyle}"
+                                ToolTipService.ToolTip="{Binding RetrySelectedIssuesToolTipText}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon FontSize="13" Glyph="&#xE72C;" />
+                                    <TextBlock Text="{Binding RetrySelectedIssuesButtonText}" />
+                                </StackPanel>
+                            </Button>
+                            <Border
+                                x:Name="RetrySelectedIssuesToolTipTarget"
+                                Background="Transparent"
+                                ToolTipService.ToolTip="{Binding RetrySelectedIssuesToolTipText}" />
+                        </Grid>
                         <Button
                             Command="{Binding OpenLatestReportCommand}"
                             Style="{StaticResource GitPullerChromeButtonStyle}">
@@ -481,7 +570,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="260" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -498,6 +587,10 @@
                             Click="WarningFilterButton_Click"
                             Content="{Binding WarningFilterText}"
                             Foreground="{ThemeResource GitPullerWarningBrush}"
+                            Style="{StaticResource GitPullerStatusFilterButtonStyle}" />
+                        <Button
+                            Click="RetryableFilterButton_Click"
+                            Content="{Binding RetryableFilterText}"
                             Style="{StaticResource GitPullerStatusFilterButtonStyle}" />
                         <Button
                             Click="UpdatedFilterButton_Click"
@@ -519,11 +612,25 @@
                         TextTrimming="CharacterEllipsis"
                         VerticalAlignment="Center" />
 
-                    <TextBox
+                    <StackPanel
                         Grid.Column="2"
-                        MinWidth="220"
-                        PlaceholderText="Search repositories"
-                        Text="{Binding RepositorySearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        VerticalAlignment="Center">
+                        <Button
+                            Click="SelectAllRetryableIssuesButton_Click"
+                            Content="Select all"
+                            Style="{StaticResource GitPullerChromeButtonStyle}" />
+                        <Button
+                            Click="ClearSelectedRetryableIssuesButton_Click"
+                            Content="Clear"
+                            Style="{StaticResource GitPullerChromeButtonStyle}" />
+                        <TextBox
+                            Width="260"
+                            MinWidth="220"
+                            PlaceholderText="Search repositories"
+                            Text="{Binding RepositorySearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
                 </Grid>
             </Border>
 
@@ -561,6 +668,7 @@
                 </Border>
 
                 <ListView
+                    x:Name="RepositoryResultsListView"
                     Grid.Row="1"
                     Background="Transparent"
                     BorderThickness="0"
@@ -573,7 +681,27 @@
                             <Grid
                                 MinHeight="46"
                                 Padding="16,6"
+                                Background="Transparent"
                                 ColumnSpacing="12">
+                                <Grid.ContextFlyout>
+                                    <MenuFlyout
+                                        x:Name="RepositoryResultContextFlyout"
+                                        Opening="RepositoryResultContextFlyout_Opening">
+                                        <MenuFlyoutItem
+                                            x:Name="RepositoryResultOpenFolderMenuItem"
+                                            Click="OpenSelectedRepositoryFolderMenuItem_Click"
+                                            Text="Open folder" />
+                                        <MenuFlyoutItem
+                                            x:Name="RepositoryResultOpenRemoteMenuItem"
+                                            Click="OpenSelectedRemoteMenuItem_Click"
+                                            Text="Open remote" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem
+                                            x:Name="RepositoryResultRetryMenuItem"
+                                            Click="RetrySelectedRepositoryMenuItem_Click"
+                                            Text="Retry" />
+                                    </MenuFlyout>
+                                </Grid.ContextFlyout>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="2*" />
                                     <ColumnDefinition Width="114" />
@@ -584,20 +712,41 @@
                                     <ColumnDefinition Width="150" />
                                 </Grid.ColumnDefinitions>
 
-                                <StackPanel MinWidth="0" Spacing="1">
-                                    <TextBlock
-                                        FontSize="13"
-                                        FontWeight="SemiBold"
-                                        Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
-                                        Text="{x:Bind Name}"
-                                        TextTrimming="CharacterEllipsis"
-                                        TextWrapping="NoWrap" />
-                                    <TextBlock
-                                        FontSize="11"
-                                        Foreground="{ThemeResource GitPullerMutedTextBrush}"
-                                        Text="{x:Bind Category}"
-                                        TextTrimming="CharacterEllipsis"
-                                        TextWrapping="NoWrap" />
+                                <StackPanel
+                                    MinWidth="0"
+                                    Orientation="Horizontal"
+                                    Spacing="8">
+                                    <Grid
+                                        x:Name="RetryIssueSelectorHost"
+                                        Width="22"
+                                        Height="22"
+                                        VerticalAlignment="Center"
+                                        Visibility="Collapsed">
+                                        <CheckBox
+                                            x:Name="RetryIssueCheckBox"
+                                            AutomationProperties.Name="Select repository for retry"
+                                            Checked="RetryIssueCheckBox_Checked"
+                                            IsEnabled="{x:Bind CanRetry}"
+                                            Loaded="RetryIssueCheckBox_Loaded"
+                                            Style="{StaticResource GitPullerRetryIssueCheckBoxStyle}"
+                                            Tag="{x:Bind Path}"
+                                            Unchecked="RetryIssueCheckBox_Unchecked" />
+                                    </Grid>
+                                    <StackPanel MinWidth="0" Spacing="1">
+                                        <TextBlock
+                                            FontSize="13"
+                                            FontWeight="SemiBold"
+                                            Foreground="{ThemeResource GitPullerPrimaryTextBrush}"
+                                            Text="{x:Bind Name}"
+                                            TextTrimming="CharacterEllipsis"
+                                            TextWrapping="NoWrap" />
+                                        <TextBlock
+                                            FontSize="11"
+                                            Foreground="{ThemeResource GitPullerMutedTextBrush}"
+                                            Text="{x:Bind Category}"
+                                            TextTrimming="CharacterEllipsis"
+                                            TextWrapping="NoWrap" />
+                                    </StackPanel>
                                 </StackPanel>
 
                                 <ContentControl

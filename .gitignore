@@ -44,6 +44,7 @@ pip-delete-this-directory.txt
 Thumbs.db
 
 # Build results
+artifacts/
 Publish/
 .git_repo_cache.json
 git_update_report.md

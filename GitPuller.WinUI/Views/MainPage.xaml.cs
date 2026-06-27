@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Windows.Input;
 using Windows.Foundation;
 using Windows.Storage.Pickers;
 using GitPuller_WinUI.Services;
@@ -9,6 +10,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using WinRT.Interop;
 
 namespace GitPuller_WinUI.Views;
@@ -16,6 +18,7 @@ namespace GitPuller_WinUI.Views;
 public sealed partial class MainPage : Page
 {
     private bool suppressFolderTreeSelectionChanged;
+    private bool suppressRetryIssueCheckBoxChange;
     private PaneResizeTarget? activePaneResizeTarget;
     private ContentDialog? activeRemovedRepositoriesDialog;
     private Point lastResizePointerPoint;
@@ -35,6 +38,7 @@ public sealed partial class MainPage : Page
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
         RebuildFolderTree();
         UpdateRetryButtonVisibility();
+        UpdateRetrySelectedIssuesButtonVisibility();
     }
 
     private async void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -57,6 +61,18 @@ public sealed partial class MainPage : Page
             or nameof(MainShellViewModel.SelectedResultCanRetry))
         {
             UpdateRetryButtonVisibility();
+        }
+
+        if (e.PropertyName is nameof(MainShellViewModel.CanRetrySelectedIssues))
+        {
+            UpdateRetrySelectedIssuesButtonVisibility();
+        }
+
+        if (e.PropertyName is nameof(MainShellViewModel.SelectedRetryIssueCount)
+            or nameof(MainShellViewModel.VisibleResults)
+            or nameof(MainShellViewModel.IsRetryableFilterSelected))
+        {
+            RefreshRetryIssueCheckBoxes();
         }
 
         if (e.PropertyName is nameof(MainShellViewModel.RepositoryTreeNodes))
@@ -98,6 +114,19 @@ public sealed partial class MainPage : Page
             : Visibility.Visible;
     }
 
+    private void UpdateRetrySelectedIssuesButtonVisibility()
+    {
+        if (RetrySelectedIssuesButton is null || RetrySelectedIssuesToolTipTarget is null)
+        {
+            return;
+        }
+
+        RetrySelectedIssuesButton.IsEnabled = ViewModel.CanRetrySelectedIssues;
+        RetrySelectedIssuesToolTipTarget.Visibility = ViewModel.CanRetrySelectedIssues
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
     private async void AddRepositoryButton_Click(object sender, RoutedEventArgs e)
     {
         ViewModel.BeginAddRepository(ViewModel.RepositoryUrlToAdd, ViewModel.SelectedCategory?.Name);
@@ -124,6 +153,11 @@ public sealed partial class MainPage : Page
         ViewModel.SelectedResultFilter = RepositoryResultFilter.Warning;
     }
 
+    private void RetryableFilterButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.SelectedResultFilter = RepositoryResultFilter.Retryable;
+    }
+
     private void UpdatedFilterButton_Click(object sender, RoutedEventArgs e)
     {
         ViewModel.SelectedResultFilter = RepositoryResultFilter.Updated;
@@ -132,6 +166,192 @@ public sealed partial class MainPage : Page
     private void CleanFilterButton_Click(object sender, RoutedEventArgs e)
     {
         ViewModel.SelectedResultFilter = RepositoryResultFilter.Clean;
+    }
+
+    private void RetryIssueCheckBox_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox checkBox)
+        {
+            UpdateRetryIssueCheckBox(checkBox);
+        }
+    }
+
+    private void RetryIssueCheckBox_Checked(object sender, RoutedEventArgs e)
+    {
+        SetRetryIssueSelected(sender, selected: true);
+    }
+
+    private void RetryIssueCheckBox_Unchecked(object sender, RoutedEventArgs e)
+    {
+        SetRetryIssueSelected(sender, selected: false);
+    }
+
+    private void SelectAllRetryableIssuesButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.SelectAllRetryableIssues();
+        RefreshRetryIssueCheckBoxes();
+    }
+
+    private void ClearSelectedRetryableIssuesButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.ClearSelectedRetryableIssues();
+        RefreshRetryIssueCheckBoxes();
+    }
+
+    private void RepositoryResultContextFlyout_Opening(object sender, object args)
+    {
+        if (sender is not MenuFlyout flyout)
+        {
+            return;
+        }
+
+        SelectRepositoryResultFromFlyoutTarget(flyout);
+
+        SetMenuFlyoutItemEnabled(
+            flyout,
+            "RepositoryResultOpenFolderMenuItem",
+            ViewModel.OpenSelectedRepositoryFolderCommand.CanExecute(null));
+        SetMenuFlyoutItemEnabled(
+            flyout,
+            "RepositoryResultOpenRemoteMenuItem",
+            ViewModel.OpenSelectedRemoteCommand.CanExecute(null));
+
+        if (FindMenuFlyoutItem(flyout, "RepositoryResultRetryMenuItem") is { } retryMenuItem)
+        {
+            retryMenuItem.Text = ViewModel.SelectedResultRetryButtonText;
+            retryMenuItem.IsEnabled = ViewModel.RetrySelectedCommand.CanExecute(null);
+        }
+    }
+
+    private void OpenSelectedRepositoryFolderMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        ExecuteCommand(ViewModel.OpenSelectedRepositoryFolderCommand);
+    }
+
+    private void OpenSelectedRemoteMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        ExecuteCommand(ViewModel.OpenSelectedRemoteCommand);
+    }
+
+    private void RetrySelectedRepositoryMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        ExecuteCommand(ViewModel.RetrySelectedCommand);
+    }
+
+    private void SelectRepositoryResultFromFlyoutTarget(MenuFlyout flyout)
+    {
+        if (flyout.Target is FrameworkElement { DataContext: RepositoryResultViewModel repositoryResult })
+        {
+            RepositoryResultsListView.SelectedItem = repositoryResult;
+            ViewModel.SelectedResult = repositoryResult;
+        }
+    }
+
+    private void SetRetryIssueSelected(object sender, bool selected)
+    {
+        if (suppressRetryIssueCheckBoxChange)
+        {
+            return;
+        }
+
+        if (sender is CheckBox { Tag: string path })
+        {
+            ViewModel.SetRetryIssueSelected(path, selected);
+        }
+    }
+
+    private static void SetMenuFlyoutItemEnabled(MenuFlyout flyout, string itemName, bool isEnabled)
+    {
+        if (FindMenuFlyoutItem(flyout, itemName) is { } menuItem)
+        {
+            menuItem.IsEnabled = isEnabled;
+        }
+    }
+
+    private static MenuFlyoutItem? FindMenuFlyoutItem(MenuFlyout flyout, string itemName)
+    {
+        foreach (var item in flyout.Items)
+        {
+            if (item is MenuFlyoutItem { Name: var name } menuItem
+                && string.Equals(name, itemName, StringComparison.Ordinal))
+            {
+                return menuItem;
+            }
+        }
+
+        return null;
+    }
+
+    private static void ExecuteCommand(ICommand command)
+    {
+        if (command.CanExecute(null))
+        {
+            command.Execute(null);
+        }
+    }
+
+    private void RefreshRetryIssueCheckBoxes()
+    {
+        if (RepositoryResultsListView is null)
+        {
+            return;
+        }
+
+        foreach (var item in RepositoryResultsListView.Items)
+        {
+            if (RepositoryResultsListView.ContainerFromItem(item) is DependencyObject container
+                && FindDescendantByName<CheckBox>(container, "RetryIssueCheckBox") is { } checkBox)
+            {
+                UpdateRetryIssueCheckBox(checkBox);
+            }
+        }
+    }
+
+    private void UpdateRetryIssueCheckBox(CheckBox checkBox)
+    {
+        if (checkBox.Tag is not string path)
+        {
+            return;
+        }
+
+        if (VisualTreeHelper.GetParent(checkBox) is FrameworkElement { Name: "RetryIssueSelectorHost" } selectorHost)
+        {
+            selectorHost.Visibility = ViewModel.IsRetryableFilterSelected && checkBox.IsEnabled
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        suppressRetryIssueCheckBoxChange = true;
+        try
+        {
+            checkBox.IsChecked = ViewModel.IsRetryIssueSelected(path);
+        }
+        finally
+        {
+            suppressRetryIssueCheckBoxChange = false;
+        }
+    }
+
+    private static T? FindDescendantByName<T>(DependencyObject root, string name)
+        where T : FrameworkElement
+    {
+        var childCount = VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < childCount; index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T element && element.Name == name)
+            {
+                return element;
+            }
+
+            var descendant = FindDescendantByName<T>(child, name);
+            if (descendant is not null)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
     }
 
     private void PaneResizeHandle_PointerPressed(object sender, PointerRoutedEventArgs e)

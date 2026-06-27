@@ -31,6 +31,7 @@ public sealed class MainShellViewModel : ObservableObject
     private CategoryNavigationItemViewModel allRepositoriesNavigationItem;
     private CategoryNavigationItemViewModel? selectedNavigationItem;
     private RepositoryResultFilter selectedResultFilter;
+    private readonly HashSet<string> selectedRetryIssuePaths = new(StringComparer.OrdinalIgnoreCase);
     private string repositorySearchText = string.Empty;
     private string repositoryUrlToAdd = string.Empty;
     private string libraryRoot;
@@ -161,6 +162,9 @@ public sealed class MainShellViewModel : ObservableObject
         RetrySelectedCommand = new AsyncRelayCommand(
             execute: () => RetrySelectedAsync(),
             canExecute: () => CanRetrySelected);
+        RetrySelectedIssuesCommand = new AsyncRelayCommand(
+            execute: () => RetrySelectedIssuesAsync(),
+            canExecute: () => CanRetrySelectedIssues);
     }
 
     public string LibraryRoot
@@ -192,6 +196,7 @@ public sealed class MainShellViewModel : ObservableObject
     public ICommand RunSyncCommand { get; }
     public ICommand RefreshCommand { get; }
     public ICommand RetrySelectedCommand { get; }
+    public ICommand RetrySelectedIssuesCommand { get; }
     public CategoryNavigationItemViewModel AllRepositoriesNavigationItem => allRepositoriesNavigationItem;
     public IReadOnlyList<CategoryNavigationItemViewModel> CategoryNavigationItems =>
         [AllRepositoriesNavigationItem, .. Categories];
@@ -219,6 +224,7 @@ public sealed class MainShellViewModel : ObservableObject
                 OnPropertyChanged(nameof(CanCloneRepository));
                 OnPropertyChanged(nameof(CanSaveAdvancedOptions));
                 OnPropertyChanged(nameof(CanChangeLibraryRoot));
+                RaiseRetryIssueSelectionPropertiesChanged();
                 RaiseCommandCanExecuteChanged();
             }
         }
@@ -363,6 +369,11 @@ public sealed class MainShellViewModel : ObservableObject
         {
             if (SetProperty(ref selectedResultFilter, value))
             {
+                if (value == RepositoryResultFilter.Retryable)
+                {
+                    EnsureRetryableIssueSelection();
+                }
+
                 RaiseResultFilterDerivedPropertiesChanged();
             }
         }
@@ -599,6 +610,7 @@ public sealed class MainShellViewModel : ObservableObject
 
     public int FailedCount => RepositoryResults.Count(result => result.Status == RepositoryResultStatus.Failed);
     public int WarningCount => RepositoryResults.Count(result => result.Status == RepositoryResultStatus.Warning);
+    public int RetryableCount => RepositoryResults.Count(IsRetryableIssue);
     public int UpdatedCount => RepositoryResults.Count(result => result.Status == RepositoryResultStatus.Updated);
     public int CleanCount => RepositoryResults.Count(result => result.Status == RepositoryResultStatus.Clean);
     public int VisibleResultCount => VisibleResults.Count;
@@ -613,11 +625,13 @@ public sealed class MainShellViewModel : ObservableObject
     public string AllFilterText => $"All {TotalResultCount}";
     public string FailedFilterText => $"Failed {FailedCount}";
     public string WarningFilterText => $"Warning {WarningCount}";
+    public string RetryableFilterText => $"Retryable {RetryableCount}";
     public string UpdatedFilterText => $"Updated {UpdatedCount}";
     public string CleanFilterText => $"Clean {CleanCount}";
     public bool IsAllFilterSelected => SelectedResultFilter == RepositoryResultFilter.All;
     public bool IsFailedFilterSelected => SelectedResultFilter == RepositoryResultFilter.Failed;
     public bool IsWarningFilterSelected => SelectedResultFilter == RepositoryResultFilter.Warning;
+    public bool IsRetryableFilterSelected => SelectedResultFilter == RepositoryResultFilter.Retryable;
     public bool IsUpdatedFilterSelected => SelectedResultFilter == RepositoryResultFilter.Updated;
     public bool IsCleanFilterSelected => SelectedResultFilter == RepositoryResultFilter.Clean;
     public string LastSyncCompletedText => lastSyncCompletedAt == default
@@ -669,6 +683,15 @@ public sealed class MainShellViewModel : ObservableObject
     public string SelectedResultRetryButtonText => SelectedResult?.RetryButtonText ?? "Retry";
     public string SelectedResultRetryToolTipText => GetSelectedResultRetryToolTipText();
     public bool SelectedResultCanRetry => CanRetrySelected;
+    public int SelectedRetryIssueCount => RetryableResults.Count(result =>
+        selectedRetryIssuePaths.Contains(NormalizePathForComparison(result.Path)));
+    public bool HasSelectedRetryIssues => SelectedRetryIssueCount > 0;
+    public string RetrySelectedIssuesButtonText => $"Retry selected ({SelectedRetryIssueCount})";
+    public string RetrySelectedIssuesToolTipText => GetRetrySelectedIssuesToolTipText();
+    public bool CanRetrySelectedIssues =>
+        !IsRunning
+        && currentRunRequest is not null
+        && SelectedRetryIssueCount > 0;
     public bool IsSelectedResultRetryPrimary => SelectedResult?.IsRetryPrimary == true;
     public bool IsSelectedResultRetrySecondary => SelectedResult?.IsRetrySecondary == true;
     public string SelectedResultEvidence => SelectedResult?.Evidence ?? string.Empty;
@@ -680,6 +703,55 @@ public sealed class MainShellViewModel : ObservableObject
         !IsRunning
         && currentRunRequest is not null
         && SelectedResult?.CanRetry == true;
+
+    public bool IsRetryIssueSelected(string path)
+    {
+        var normalizedPath = NormalizePathForComparison(path);
+        return selectedRetryIssuePaths.Contains(normalizedPath)
+            && IsRetryableIssuePath(normalizedPath);
+    }
+
+    public void SetRetryIssueSelected(string path, bool selected)
+    {
+        var normalizedPath = NormalizePathForComparison(path);
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+        {
+            return;
+        }
+
+        var changed = selected
+            ? IsRetryableIssuePath(normalizedPath) && selectedRetryIssuePaths.Add(normalizedPath)
+            : selectedRetryIssuePaths.Remove(normalizedPath);
+        if (changed)
+        {
+            RaiseRetryIssueSelectionPropertiesChanged();
+        }
+    }
+
+    public void SelectAllRetryableIssues()
+    {
+        var changed = false;
+        foreach (var result in RetryableResults)
+        {
+            changed |= selectedRetryIssuePaths.Add(NormalizePathForComparison(result.Path));
+        }
+
+        if (changed)
+        {
+            RaiseRetryIssueSelectionPropertiesChanged();
+        }
+    }
+
+    public void ClearSelectedRetryableIssues()
+    {
+        if (selectedRetryIssuePaths.Count == 0)
+        {
+            return;
+        }
+
+        selectedRetryIssuePaths.Clear();
+        RaiseRetryIssueSelectionPropertiesChanged();
+    }
 
     private string GetSelectedResultRetryToolTipText()
     {
@@ -707,6 +779,23 @@ public sealed class MainShellViewModel : ObservableObject
             RetryPolicy.NotApplicable => "This result does not need a retry action.",
             _ => "No retry guidance was recorded."
         };
+    }
+
+    private string GetRetrySelectedIssuesToolTipText()
+    {
+        if (IsRunning)
+        {
+            return "Retry selected is disabled while a sync is running.";
+        }
+
+        if (currentRunRequest is null)
+        {
+            return "Run sync once before retrying failed or warning repositories.";
+        }
+
+        return SelectedRetryIssueCount == 0
+            ? "Select one or more retryable failed or warning repositories."
+            : $"Retry {SelectedRetryIssueCount} selected repositories.";
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -883,6 +972,72 @@ public sealed class MainShellViewModel : ObservableObject
         catch (OperationCanceledException)
         {
             SetRunError("Retry was canceled.", canceled: true);
+            PersistCurrentRunState(PersistedRunStatus.Canceled, completedAt: DateTimeOffset.Now, errorMessage: RunErrorMessage);
+        }
+        catch (Exception ex)
+        {
+            SetRunError(ex.Message);
+            PersistCurrentRunState(PersistedRunStatus.Failed, completedAt: DateTimeOffset.Now, errorMessage: RunErrorMessage);
+        }
+        finally
+        {
+            IsRunning = false;
+        }
+    }
+
+    public async Task RetrySelectedIssuesAsync(CancellationToken cancellationToken = default)
+    {
+        if (!CanRetrySelectedIssues || syncService is null || currentRunRequest is null)
+        {
+            return;
+        }
+
+        var request = currentRunRequest;
+        var targets = RetryableResults
+            .Where(result => IsRetryIssueSelected(result.Path))
+            .OrderBy(result => GetStatusSortOrder(result.Status))
+            .ThenBy(result => result.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (targets.Length == 0)
+        {
+            RaiseRetryIssueSelectionPropertiesChanged();
+            return;
+        }
+
+        IsRunning = true;
+        ClearRunError();
+        currentRunStartedAt = DateTimeOffset.Now;
+        SetRunProgress(0, targets.Length, $"Retrying {targets.Length} repositories...");
+        PersistCurrentRunState(PersistedRunStatus.Running);
+
+        var completed = 0;
+        try
+        {
+            foreach (var target in targets)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                SetRunProgress(completed, targets.Length, $"Retrying {target.Name}...");
+                PersistCurrentRunState(PersistedRunStatus.Running);
+
+                var retryResult = await syncService.RetryRepositoryAsync(
+                    request,
+                    target.Path,
+                    progress: null,
+                    cancellationToken);
+                await dispatcher.EnqueueAsync(() =>
+                {
+                    UpsertRepositoryResult(retryResult, FindRepositoryDescriptor(retryResult.Path));
+                    completed++;
+                    SetRunProgress(completed, targets.Length, $"Retried {completed} of {targets.Length} repositories.");
+                    PersistCurrentRunState(PersistedRunStatus.Running);
+                });
+            }
+
+            await dispatcher.EnqueueAsync(() => ApplyRetryIssuesCompleted(targets.Length));
+        }
+        catch (OperationCanceledException)
+        {
+            SetRunError("Retry selected was canceled.", canceled: true);
             PersistCurrentRunState(PersistedRunStatus.Canceled, completedAt: DateTimeOffset.Now, errorMessage: RunErrorMessage);
         }
         catch (Exception ex)
@@ -1927,6 +2082,16 @@ public sealed class MainShellViewModel : ObservableObject
         PersistCurrentRunState(PersistedRunStatus.Completed, completedAt: retryResult.CompletedAt);
     }
 
+    private void ApplyRetryIssuesCompleted(int attemptedCount)
+    {
+        var remainingRetryableCount = RetryableCount;
+        var message = remainingRetryableCount == 0
+            ? $"Retried {attemptedCount} repositories. No retryable issues remain."
+            : $"Retried {attemptedCount} repositories. {remainingRetryableCount} retryable issue(s) remain.";
+        SetRunProgress(attemptedCount, attemptedCount, message);
+        PersistCurrentRunState(PersistedRunStatus.Completed, completedAt: DateTimeOffset.Now);
+    }
+
     private void ClearLoadedRunState()
     {
         currentLibraryLoad = null;
@@ -1939,6 +2104,8 @@ public sealed class MainShellViewModel : ObservableObject
         RemovedRepositories.Clear();
         RepositoryResults.Clear();
         SelectedResult = null;
+        selectedRetryIssuePaths.Clear();
+        RaiseRetryIssueSelectionPropertiesChanged();
         RefreshAllRepositoriesNavigationItem();
         RaiseCommandCanExecuteChanged();
     }
@@ -2742,6 +2909,7 @@ public sealed class MainShellViewModel : ObservableObject
         {
             RepositoryResultFilter.Failed => result.Status == RepositoryResultStatus.Failed,
             RepositoryResultFilter.Warning => result.Status == RepositoryResultStatus.Warning,
+            RepositoryResultFilter.Retryable => IsRetryableIssue(result),
             RepositoryResultFilter.Updated => result.Status == RepositoryResultStatus.Updated,
             RepositoryResultFilter.Clean => result.Status == RepositoryResultStatus.Clean,
             _ => true
@@ -2768,6 +2936,63 @@ public sealed class MainShellViewModel : ObservableObject
     private static bool RequiresAttention(RepositoryResultViewModel result)
     {
         return result.Status is RepositoryResultStatus.Failed or RepositoryResultStatus.Warning;
+    }
+
+    private static bool IsRetryableIssue(RepositoryResultViewModel result)
+    {
+        return RequiresAttention(result) && result.CanRetry;
+    }
+
+    private IReadOnlyList<RepositoryResultViewModel> RetryableResults =>
+        RepositoryResults
+            .Where(IsRetryableIssue)
+            .ToArray();
+
+    private bool IsRetryableIssuePath(string normalizedPath)
+    {
+        return RetryableResults.Any(result =>
+            string.Equals(
+                NormalizePathForComparison(result.Path),
+                normalizedPath,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void EnsureRetryableIssueSelection()
+    {
+        var changed = PruneSelectedRetryIssuePaths();
+        if (SelectedRetryIssueCount == 0)
+        {
+            foreach (var result in RetryableResults)
+            {
+                changed |= selectedRetryIssuePaths.Add(NormalizePathForComparison(result.Path));
+            }
+        }
+
+        if (changed)
+        {
+            RaiseRetryIssueSelectionPropertiesChanged();
+        }
+    }
+
+    private bool PruneSelectedRetryIssuePaths()
+    {
+        if (selectedRetryIssuePaths.Count == 0)
+        {
+            return false;
+        }
+
+        var retryablePaths = RetryableResults
+            .Select(result => NormalizePathForComparison(result.Path))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var stalePaths = selectedRetryIssuePaths
+            .Where(path => !retryablePaths.Contains(path))
+            .ToArray();
+        foreach (var path in stalePaths)
+        {
+            selectedRetryIssuePaths.Remove(path);
+        }
+
+        return stalePaths.Length > 0;
     }
 
     private static IEnumerable<string> EnumerateCategoryPath(string categoryName)
@@ -2802,6 +3027,7 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(IsAllFilterSelected));
         OnPropertyChanged(nameof(IsFailedFilterSelected));
         OnPropertyChanged(nameof(IsWarningFilterSelected));
+        OnPropertyChanged(nameof(IsRetryableFilterSelected));
         OnPropertyChanged(nameof(IsUpdatedFilterSelected));
         OnPropertyChanged(nameof(IsCleanFilterSelected));
         EnsureSelectedResultIsVisible();
@@ -2810,8 +3036,10 @@ public sealed class MainShellViewModel : ObservableObject
     private void RaiseResultDerivedPropertiesChanged()
     {
         InvalidateVisibleResults();
+        var selectionChanged = PruneSelectedRetryIssuePaths();
         OnPropertyChanged(nameof(FailedCount));
         OnPropertyChanged(nameof(WarningCount));
+        OnPropertyChanged(nameof(RetryableCount));
         OnPropertyChanged(nameof(UpdatedCount));
         OnPropertyChanged(nameof(CleanCount));
         OnPropertyChanged(nameof(VisibleResultCount));
@@ -2822,6 +3050,7 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(AllFilterText));
         OnPropertyChanged(nameof(FailedFilterText));
         OnPropertyChanged(nameof(WarningFilterText));
+        OnPropertyChanged(nameof(RetryableFilterText));
         OnPropertyChanged(nameof(UpdatedFilterText));
         OnPropertyChanged(nameof(CleanFilterText));
         OnPropertyChanged(nameof(FooterSummaryText));
@@ -2831,6 +3060,10 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(FailedFooterText));
         OnPropertyChanged(nameof(FooterRunStateText));
         RaiseRunStatusIndicatorPropertiesChanged();
+        if (selectionChanged)
+        {
+            RaiseRetryIssueSelectionPropertiesChanged();
+        }
     }
 
     private void RaiseRunStatusIndicatorPropertiesChanged()
@@ -2875,6 +3108,20 @@ public sealed class MainShellViewModel : ObservableObject
         OnPropertyChanged(nameof(HasSelectedResult));
         OnPropertyChanged(nameof(CanOpenSelectedRepositoryFolder));
         OnPropertyChanged(nameof(CanOpenSelectedRemote));
+    }
+
+    private void RaiseRetryIssueSelectionPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(SelectedRetryIssueCount));
+        OnPropertyChanged(nameof(HasSelectedRetryIssues));
+        OnPropertyChanged(nameof(RetrySelectedIssuesButtonText));
+        OnPropertyChanged(nameof(RetrySelectedIssuesToolTipText));
+        OnPropertyChanged(nameof(CanRetrySelectedIssues));
+
+        if (RetrySelectedIssuesCommand is AsyncRelayCommand retryIssuesCommand)
+        {
+            retryIssuesCommand.RaiseCanExecuteChanged();
+        }
     }
 
     private void RaiseCommandCanExecuteChanged()
@@ -2924,8 +3171,15 @@ public sealed class MainShellViewModel : ObservableObject
             retryCommand.RaiseCanExecuteChanged();
         }
 
+        if (RetrySelectedIssuesCommand is AsyncRelayCommand retryIssuesCommand)
+        {
+            retryIssuesCommand.RaiseCanExecuteChanged();
+        }
+
         OnPropertyChanged(nameof(SelectedResultCanRetry));
         OnPropertyChanged(nameof(SelectedResultRetryToolTipText));
+        OnPropertyChanged(nameof(CanRetrySelectedIssues));
+        OnPropertyChanged(nameof(RetrySelectedIssuesToolTipText));
     }
 }
 

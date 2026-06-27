@@ -8,13 +8,7 @@ namespace GitPuller.WinUI.Tests;
 public sealed class MainShellViewModelTests
 {
     private static readonly string TestRoot = Path.Combine(Path.GetTempPath(), "MyGitPullerWinUITests");
-    private static readonly string RepositoryRoot = Path.GetFullPath(Path.Combine(
-        AppContext.BaseDirectory,
-        "..",
-        "..",
-        "..",
-        "..",
-        ".."));
+    private static readonly string RepositoryRoot = FindRepositoryRoot();
 
     [Fact]
     public void VisibleResults_SortsFailedWarningUpdatedClean_WhenCleanRowsShown()
@@ -62,6 +56,83 @@ public sealed class MainShellViewModelTests
         viewModel.SelectedResultFilter = RepositoryResultFilter.Warning;
 
         Assert.Equal(["warning"], viewModel.VisibleResults.Select(result => result.Name).ToArray());
+    }
+
+    [Fact]
+    public void VisibleResults_RetryableFilterShowsOnlyRetryableFailedAndWarnings()
+    {
+        var viewModel = CreateViewModel(
+            Result(
+                "retry-failed",
+                RepositoryResultStatus.Failed,
+                Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error)),
+            Result(
+                "blocked-failed",
+                RepositoryResultStatus.Failed,
+                Diagnostic(RetryPolicy.BlockedUntilAction, DiagnosticSeverity.Error)),
+            Result(
+                "retry-warning",
+                RepositoryResultStatus.Warning,
+                Diagnostic(RetryPolicy.PossibleAfterCheck, DiagnosticSeverity.Warning)),
+            Result(
+                "review-warning",
+                RepositoryResultStatus.Warning,
+                Diagnostic(RetryPolicy.NotApplicable, DiagnosticSeverity.Warning)),
+            Result("updated", RepositoryResultStatus.Updated));
+
+        viewModel.SelectedResultFilter = RepositoryResultFilter.Retryable;
+
+        Assert.Equal(
+            ["retry-failed", "retry-warning"],
+            viewModel.VisibleResults.Select(result => result.Name).ToArray());
+        Assert.Equal(2, viewModel.RetryableCount);
+        Assert.Equal("Retryable 2", viewModel.RetryableFilterText);
+        Assert.True(viewModel.IsRetryableFilterSelected);
+    }
+
+    [Fact]
+    public void RetryIssueSelection_DefaultsToRetryableResultsWhenRetryableFilterIsSelected()
+    {
+        var retryable = Result(
+            "retryable",
+            RepositoryResultStatus.Failed,
+            Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error));
+        var blocked = Result(
+            "blocked",
+            RepositoryResultStatus.Failed,
+            Diagnostic(RetryPolicy.BlockedUntilAction, DiagnosticSeverity.Error));
+        var viewModel = CreateViewModel(retryable, blocked);
+
+        viewModel.SelectedResultFilter = RepositoryResultFilter.Retryable;
+
+        Assert.True(viewModel.IsRetryIssueSelected(retryable.Path));
+        Assert.False(viewModel.IsRetryIssueSelected(blocked.Path));
+        Assert.Equal(1, viewModel.SelectedRetryIssueCount);
+        Assert.Equal("Retry selected (1)", viewModel.RetrySelectedIssuesButtonText);
+        Assert.True(viewModel.HasSelectedRetryIssues);
+    }
+
+    [Fact]
+    public void RetryIssueSelection_CanClearAndSelectAllRetryableIssues()
+    {
+        var retryable = Result(
+            "retryable",
+            RepositoryResultStatus.Failed,
+            Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error));
+        var viewModel = CreateViewModel(retryable);
+        viewModel.SelectedResultFilter = RepositoryResultFilter.Retryable;
+
+        viewModel.ClearSelectedRetryableIssues();
+
+        Assert.False(viewModel.IsRetryIssueSelected(retryable.Path));
+        Assert.Equal(0, viewModel.SelectedRetryIssueCount);
+        Assert.Equal("Retry selected (0)", viewModel.RetrySelectedIssuesButtonText);
+        Assert.False(viewModel.HasSelectedRetryIssues);
+
+        viewModel.SelectAllRetryableIssues();
+
+        Assert.True(viewModel.IsRetryIssueSelected(retryable.Path));
+        Assert.Equal(1, viewModel.SelectedRetryIssueCount);
     }
 
     [Fact]
@@ -247,6 +318,86 @@ public sealed class MainShellViewModelTests
         Assert.Contains("x:Name=\"ResultTable\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"DetailsPane\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"FooterStatusBar\"", xaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RetryableIssues_MainPageExposesFilterSelectionAndBulkRetryControls()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+        var codeBehind = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml.cs");
+        var statusFilterBarStart = xaml.IndexOf("x:Name=\"StatusFilterBar\"", StringComparison.Ordinal);
+        var resultTableStart = xaml.IndexOf("x:Name=\"ResultTable\"", StringComparison.Ordinal);
+        var listViewStart = xaml.IndexOf("<ListView", resultTableStart, StringComparison.Ordinal);
+        var retryCheckBoxStyleStart = xaml.IndexOf("x:Key=\"GitPullerRetryIssueCheckBoxStyle\"", StringComparison.Ordinal);
+
+        Assert.True(statusFilterBarStart >= 0);
+        Assert.True(resultTableStart > statusFilterBarStart);
+        Assert.True(listViewStart > resultTableStart);
+        Assert.True(retryCheckBoxStyleStart >= 0);
+
+        var statusFilterBar = xaml[statusFilterBarStart..resultTableStart];
+        var resultTableHeader = xaml[resultTableStart..listViewStart];
+        var retryCheckBoxStyleEnd = xaml.IndexOf("</Style>", retryCheckBoxStyleStart, StringComparison.Ordinal);
+        Assert.True(retryCheckBoxStyleEnd > retryCheckBoxStyleStart);
+        var retryCheckBoxStyle = xaml[retryCheckBoxStyleStart..retryCheckBoxStyleEnd];
+
+        Assert.Contains("RetryableFilterText", xaml, StringComparison.Ordinal);
+        Assert.Contains("RetrySelectedIssuesCommand", xaml, StringComparison.Ordinal);
+        Assert.Contains("RetrySelectedIssuesButtonText", xaml, StringComparison.Ordinal);
+        Assert.Contains("Select all", statusFilterBar, StringComparison.Ordinal);
+        Assert.Contains("Clear", statusFilterBar, StringComparison.Ordinal);
+        Assert.DoesNotContain("Select all", resultTableHeader, StringComparison.Ordinal);
+        Assert.DoesNotContain("Clear", resultTableHeader, StringComparison.Ordinal);
+        Assert.DoesNotContain("Text=\"Retry\"", resultTableHeader, StringComparison.Ordinal);
+        Assert.DoesNotContain("<ColumnDefinition Width=\"48\" />", resultTableHeader, StringComparison.Ordinal);
+        Assert.Contains("RetryIssueCheckBox", xaml, StringComparison.Ordinal);
+        Assert.Contains("RetryIssueSelectorHost", xaml, StringComparison.Ordinal);
+        Assert.Contains("GitPullerRetryIssueCheckBoxStyle", xaml, StringComparison.Ordinal);
+        Assert.Contains("ControlTemplate TargetType=\"CheckBox\"", retryCheckBoxStyle, StringComparison.Ordinal);
+        Assert.Contains("CheckedBox", retryCheckBoxStyle, StringComparison.Ordinal);
+        Assert.Contains("CheckGlyph", retryCheckBoxStyle, StringComparison.Ordinal);
+        Assert.Contains("IsRetryableFilterSelected", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("RetryableFilterButton_Click", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("RetryIssueCheckBox_Checked", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("SelectAllRetryableIssuesButton_Click", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ClearSelectedRetryableIssuesButton_Click", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RepositoryResults_MainPageExposesRowContextMenuForSelectedRepositoryActions()
+    {
+        var xaml = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml");
+        var codeBehind = ReadRepositoryFile("GitPuller.WinUI", "Views", "MainPage.xaml.cs");
+        var resultTableStart = xaml.IndexOf("x:Name=\"ResultTable\"", StringComparison.Ordinal);
+        var detailsPaneStart = xaml.IndexOf("x:Name=\"DetailsPane\"", StringComparison.Ordinal);
+
+        Assert.True(resultTableStart >= 0);
+        Assert.True(detailsPaneStart > resultTableStart);
+
+        var resultTable = xaml[resultTableStart..detailsPaneStart];
+
+        Assert.DoesNotContain("ContextRequested=", resultTable, StringComparison.Ordinal);
+        Assert.Contains("Background=\"Transparent\"", resultTable, StringComparison.Ordinal);
+        Assert.Contains("<Grid.ContextFlyout>", resultTable, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"RepositoryResultContextFlyout\"", resultTable, StringComparison.Ordinal);
+        Assert.Contains("Opening=\"RepositoryResultContextFlyout_Opening\"", resultTable, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"RepositoryResultOpenFolderMenuItem\"", resultTable, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Open folder\"", resultTable, StringComparison.Ordinal);
+        Assert.Contains("Click=\"OpenSelectedRepositoryFolderMenuItem_Click\"", resultTable, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"RepositoryResultOpenRemoteMenuItem\"", resultTable, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Open remote\"", resultTable, StringComparison.Ordinal);
+        Assert.Contains("Click=\"OpenSelectedRemoteMenuItem_Click\"", resultTable, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"RepositoryResultRetryMenuItem\"", resultTable, StringComparison.Ordinal);
+        Assert.Contains("Click=\"RetrySelectedRepositoryMenuItem_Click\"", resultTable, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("RepositoryResultRow_ContextRequested", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("RepositoryResultContextFlyout_Opening", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("flyout.Target is FrameworkElement { DataContext: RepositoryResultViewModel repositoryResult }", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("RepositoryResultsListView.SelectedItem = repositoryResult", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ViewModel.SelectedResult = repositoryResult", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ViewModel.OpenSelectedRepositoryFolderCommand", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ViewModel.OpenSelectedRemoteCommand", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ViewModel.RetrySelectedCommand", codeBehind, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2915,6 +3066,104 @@ public sealed class MainShellViewModelTests
     }
 
     [Fact]
+    public async Task RetrySelectedIssuesAsync_RetriesSelectedRetryableResultsSequentially()
+    {
+        var first = Descriptor("Plugins", "First");
+        var second = Descriptor("Plugins", "Second");
+        var service = new FakeGitPullerSyncService(LoadResult(first, second));
+        service.RunAllAsyncHandler = (_, _, _) => Task.FromResult(new GitPullerRunResult
+        {
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            RepositoryResults =
+            [
+                RepoResultFor(
+                    first,
+                    failed: true,
+                    newCommits: 0,
+                    Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error)),
+                RepoResultFor(
+                    second,
+                    failed: true,
+                    newCommits: 0,
+                    Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error))
+            ]
+        });
+
+        var retryOrder = new List<string>();
+        service.RetryRepositoryAsyncHandler = (_, repoPath, _, _) =>
+        {
+            retryOrder.Add(Path.GetFileName(repoPath));
+            var descriptor = string.Equals(repoPath, first.Path, StringComparison.OrdinalIgnoreCase)
+                ? first
+                : second;
+            return Task.FromResult(RepoResultFor(descriptor, failed: false, newCommits: 1, diagnostic: null));
+        };
+
+        var runStateStore = new FakeRunStateStore();
+        var viewModel = new MainShellViewModel(TestRoot, service, runStateStore: runStateStore);
+        await viewModel.RunSyncAsync();
+        viewModel.SelectedResultFilter = RepositoryResultFilter.Retryable;
+
+        Assert.True(viewModel.RetrySelectedIssuesCommand.CanExecute(null));
+
+        await viewModel.RetrySelectedIssuesAsync();
+
+        Assert.Equal(["First", "Second"], retryOrder);
+        Assert.All(viewModel.RepositoryResults, result => Assert.Equal(RepositoryResultStatus.Updated, result.Status));
+        Assert.Contains("Retried 2 repositories", viewModel.RunStatusMessage, StringComparison.Ordinal);
+        Assert.Equal(0, viewModel.SelectedRetryIssueCount);
+        Assert.Equal(PersistedRunStatus.Completed, runStateStore.SavedStates[^1].Status);
+    }
+
+    [Fact]
+    public async Task RetrySelectedIssuesAsync_RetriesOnlySelectedRetryableResults()
+    {
+        var first = Descriptor("Plugins", "First");
+        var second = Descriptor("Plugins", "Second");
+        var service = new FakeGitPullerSyncService(LoadResult(first, second));
+        service.RunAllAsyncHandler = (_, _, _) => Task.FromResult(new GitPullerRunResult
+        {
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            RepositoryResults =
+            [
+                RepoResultFor(
+                    first,
+                    failed: true,
+                    newCommits: 0,
+                    Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error)),
+                RepoResultFor(
+                    second,
+                    failed: true,
+                    newCommits: 0,
+                    Diagnostic(RetryPolicy.Recommended, DiagnosticSeverity.Error))
+            ]
+        });
+
+        var retryOrder = new List<string>();
+        service.RetryRepositoryAsyncHandler = (_, repoPath, _, _) =>
+        {
+            retryOrder.Add(Path.GetFileName(repoPath));
+            return Task.FromResult(RepoResultFor(second, failed: false, newCommits: 1, diagnostic: null));
+        };
+
+        var viewModel = new MainShellViewModel(TestRoot, service);
+        await viewModel.RunSyncAsync();
+        viewModel.SelectedResultFilter = RepositoryResultFilter.Retryable;
+        viewModel.SetRetryIssueSelected(first.Path, selected: false);
+
+        await viewModel.RetrySelectedIssuesAsync();
+
+        Assert.Equal(["Second"], retryOrder);
+        Assert.Equal(RepositoryResultStatus.Failed, viewModel.RepositoryResults.Single(result => result.Path == first.Path).Status);
+        Assert.Equal(RepositoryResultStatus.Updated, viewModel.RepositoryResults.Single(result => result.Path == second.Path).Status);
+        Assert.Equal(1, viewModel.RetryableCount);
+        Assert.Equal(0, viewModel.SelectedRetryIssueCount);
+        Assert.Contains("1 retryable issue", viewModel.RunStatusMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunSyncAsync_ExposesLoadFailureAsStatusInsteadOfThrowing()
     {
         var service = new FakeGitPullerSyncService(LoadResult());
@@ -3344,6 +3593,24 @@ public sealed class MainShellViewModelTests
     private static string RepositoryPath(params string[] relativeSegments)
     {
         return Path.Combine([RepositoryRoot, .. relativeSegments]);
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "GitPuller.sln")) &&
+                Directory.Exists(Path.Combine(directory.FullName, "GitPuller.WinUI")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException(
+            $"Could not find repository root from '{AppContext.BaseDirectory}'.");
     }
 
     private static int CountOccurrences(string text, string value)
